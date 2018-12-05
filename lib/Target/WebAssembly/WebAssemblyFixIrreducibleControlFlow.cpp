@@ -26,6 +26,9 @@
 ///
 //===----------------------------------------------------------------------===//
 
+#include <unordered_map>
+#include <unordered_set>
+
 #include "MCTargetDesc/WebAssemblyMCTargetDesc.h"
 #include "WebAssembly.h"
 #include "WebAssemblyMachineFunctionInfo.h"
@@ -140,7 +143,7 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
 
 if (getenv("DAN")) {
   SetVector<MachineBasicBlock *> RewriteSuccs;
-errs() << "dan is considering " << MF.getFunction().getName() << '\n';
+//errs() << "dan is considering " << MF.getFunction().getName() << '\n';
 
   // DFS through Loop's body, looking for irreducible control flow. Loop is
   // natural, and we stay in its body, and we treat any nested loops
@@ -158,12 +161,12 @@ errs() << "dan is considering " << MF.getFunction().getName() << '\n';
       if (Next == Header || (Loop && !Loop->contains(Next)))
         continue;
       if (LLVM_LIKELY(OnStack.insert(Next).second)) {
-#if 0
+//#if 0
         if (!Visited.insert(Next).second) {
           OnStack.erase(Next);
           continue;
         }
-#endif
+//#endif
         MachineLoop *InnerLoop = MLI.getLoopFor(Next);
         if (InnerLoop != Loop)
           LoopWorklist.push_back(SuccessorList(InnerLoop));
@@ -275,37 +278,97 @@ errs() << "   tootal " << RewriteSuccs.size() << '\n';
 } else {
 
 // An alternatie approahc
+if (Loop) return false; // we just work at the top level yo
 
-  SetVector<MachineBasicBlock *> BadBlocks;
 errs() << "we are considering " << MF.getFunction().getName() << '\n';
 if (Loop) errs() << "  a loop of size " << Loop->getBlocks().size() << '\n';
 
+// TODO: iterations.
+
+  // Find all the blocks which can return to themselves, and the blocks which
+  // cannot. Loopers reachable from the non-loopers are loop entries: if there is
+  // 1, it is a natural loop; otherwise, we have irreducible control flow.
+
+  // Compute which blocks each block can reach.
+  std::unordered_map<MachineBasicBlock *, std::unordered_set<MachineBasicBlock *>> Reachable;
+  std::set<MachineBasicBlock *> WorkList;
+  for (auto &MBB : MF) {
+    for (auto *Succ : MBB.successors()) {
+      Reachable[&MBB].insert(Succ);
+//errs() << "  pre-add " << MBB.getName() << " => " << Succ->getName() << '\n';
+    }
+    WorkList.insert(&MBB);
+  }
+  while (!WorkList.empty()) {
+    MachineBasicBlock* MBB = *WorkList.begin();
+//errs() << "at " << MBB->getName() << '\n';
+    WorkList.erase(WorkList.begin());
+    bool Inserted = false;
+    auto Successors = Reachable[MBB];
+    for (auto *Succ : Successors) {
+      for (auto *Succ2 : Reachable[Succ]) {
+        if (Reachable[MBB].insert(Succ2).second) {
+//errs() << "  add " << MBB->getName() << " => " << Succ2->getName() << '\n';
+          Inserted = true;
+        }
+      }
+    }
+    if (Inserted) {
+      for (auto *Pred : MBB->predecessors()) {
+        WorkList.insert(Pred);
+//errs() << "  will work on " << Pred->getName() << '\n';
+      }
+    }
+  }
+
+  std::unordered_set<MachineBasicBlock *> Loopers;
+  for (auto &MBB : MF) {
+    if (Reachable[&MBB].count(&MBB)) {
+      Loopers.insert(&MBB);
+    }
+  }
+errs() << "loopers: " << Loopers.size() << '\n';
+
+  SmallPtrSet<MachineBasicBlock *, 1> Entries;
+  for (auto &MBB : MF) {
+    if (Loopers.count(&MBB)) {
+      for (auto *Pred : MBB.predecessors()) {
+        if (!Loopers.count(Pred)) {
+          Entries.insert(&MBB);
+          break;
+        }
+      }
+    }
+  }
+errs() << "entries: " << Entries.size() << '\n';
+
+  if (Entries.size() <= 1) return false;
+
+  auto BadBlocks = Entries;
+
+  for (auto* MBB : BadBlocks) {
+    errs() << " bad: " << MBB->getName() << '\n';
+  }
+
+#if 0
   // DFS through Loop's body, looking for irreducible control flow. Loop is
   // natural, and we stay in its body, and we treat any nested loops
   // monolithically, so any cycles we encounter indicate irreducibility.
   // Note all the blocks that are in such an irreducible position.
   SmallPtrSet<MachineBasicBlock *, 8> OnStack;
-  SmallPtrSet<MachineBasicBlock *, 8> Visited;
   SmallVector<SuccessorList, 4> LoopWorklist;
   LoopWorklist.push_back(SuccessorList(Header));
   OnStack.insert(Header);
-  Visited.insert(Header);
   while (!LoopWorklist.empty()) {
     SuccessorList &Top = LoopWorklist.back();
-errs() << "top: " << Top.getBlock()->getName() << '\n';
+errs() << MF.getFunction().getName() << " top: " << Top.getBlock()->getName() << '\n';
     if (Top.HasNext()) {
       MachineBasicBlock *Next = Top.Next();
 errs() << "next: " << Next->getName() << '\n';
-      if (Next == Header || (Loop && !Loop->contains(Next)))
+      if (Next == Header || (Loop && !Loop->contains(Next)))// || BadBlocks.count(Next))
         continue;
       if (LLVM_LIKELY(OnStack.insert(Next).second)) {
 errs() << "add to stack, and add to queue\n";
-#if 0
-        if (!Visited.insert(Next).second) {
-          OnStack.erase(Next);
-          continue;
-        }
-#endif
         MachineLoop *InnerLoop = MLI.getLoopFor(Next);
         if (InnerLoop != Loop)
           LoopWorklist.push_back(SuccessorList(InnerLoop));
@@ -325,6 +388,11 @@ errs() << "drop from stack to stack\n";
   // Most likely, we didn't find any irreducible control flow.
   if (LLVM_LIKELY(BadBlocks.empty()))
     return false;
+#endif
+
+
+
+
 
 errs() << "we say irreduyciuble! " << MF.getFunction().getName() << " with " << BadBlocks.size() << '\n';
 
