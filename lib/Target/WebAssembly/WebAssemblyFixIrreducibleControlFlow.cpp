@@ -137,7 +137,10 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
                                                      MachineLoopInfo &MLI,
                                                      MachineLoop *Loop) {
   MachineBasicBlock *Header = Loop ? Loop->getHeader() : &*MF.begin();
+
+if (getenv("DAN")) {
   SetVector<MachineBasicBlock *> RewriteSuccs;
+errs() << "dan is considering " << MF.getFunction().getName() << '\n';
 
   // DFS through Loop's body, looking for irreducible control flow. Loop is
   // natural, and we stay in its body, and we treat any nested loops
@@ -155,10 +158,12 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
       if (Next == Header || (Loop && !Loop->contains(Next)))
         continue;
       if (LLVM_LIKELY(OnStack.insert(Next).second)) {
+#if 0
         if (!Visited.insert(Next).second) {
           OnStack.erase(Next);
           continue;
         }
+#endif
         MachineLoop *InnerLoop = MLI.getLoopFor(Next);
         if (InnerLoop != Loop)
           LoopWorklist.push_back(SuccessorList(InnerLoop));
@@ -176,6 +181,8 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
   // Most likely, we didn't find any irreducible control flow.
   if (LLVM_LIKELY(RewriteSuccs.empty()))
     return false;
+
+errs() << "irreduyciuble! " << MF.getFunction().getName() << " with " << RewriteSuccs.size() << '\n';
 
   LLVM_DEBUG(dbgs() << "Irreducible control flow detected!\n");
 
@@ -212,7 +219,7 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
                       << "\n");
 
     Pair.first->second = Index;
-    for (auto Pred : MBB->predecessors())
+    for (auto Pred : MBB->predecessors()) // teh evil
       RewriteSuccs.insert(Pred);
 
     MIB.addMBB(MBB);
@@ -223,7 +230,7 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
       if (Succ != Header && (!Loop || Loop->contains(Succ)))
         SuccWorklist.push_back(Succ);
   }
-
+errs() << "   tootal " << RewriteSuccs.size() << '\n';
   // Rewrite the problematic successors for every block in RewriteSuccs.
   // For simplicity, we just introduce a new block for every edge we need to
   // rewrite. Fancier things are possible.
@@ -264,6 +271,52 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
                  .getMBB());
 
   return true;
+
+} else {
+
+
+// Alternatively, see if any blocks in this loop have preds that are outside
+// of the loop, and they are not the loop header (the sole legal recepient of
+// such preds).
+
+/*
+A -> B or C
+B -> B or C
+C -> B or C
+then LLVM identifies 2 natural loops of size 1, with the singleton block in each, and
+we can't identify that as irreducible :9
+*/
+
+if (!Loop) return false;
+SetVector<MachineBasicBlock *> Succy;
+auto All = Loop->getBlocks();
+errs() << "inspakcting a loop with " << All.size() << "blcks\n";
+for (auto *Block : All) {
+  // Check blocks in this loop itself, not inner loops.
+  if (Block != Header && MLI.getLoopFor(Block) == Loop) {
+errs() << "chak a blockk\n";
+    for (MachineBasicBlock *Pred : Block->predecessors()) {
+errs() << "  chak a blockk predd\n";
+      if (!Loop->contains(Pred)) {
+        Succy.insert(Block);
+        break;
+      }
+    }
+  }
+}
+if (Succy.empty()) {
+  errs() << MF.getFunction().getName() << " loooks okay...?\n";
+  return false;
+}
+
+errs() << "we say irrrrrr " << MF.getFunction().getName() << " : " << Succy.size() << "]\n";
+
+// Create a new loop superheader, which can direct control flow to any of the
+// blocks we noted as being loop entries.
+
+return false;
+}
+
 }
 
 bool WebAssemblyFixIrreducibleControlFlow::runOnMachineFunction(
