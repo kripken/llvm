@@ -274,47 +274,158 @@ errs() << "   tootal " << RewriteSuccs.size() << '\n';
 
 } else {
 
+// An alternatie approahc
 
-// Alternatively, see if any blocks in this loop have preds that are outside
-// of the loop, and they are not the loop header (the sole legal recepient of
-// such preds).
+  SetVector<MachineBasicBlock *> BadBlocks;
+errs() << "we are considering " << MF.getFunction().getName() << '\n';
+if (Loop) errs() << "  a loop of size " << Loop->getBlocks().size() << '\n';
 
-/*
-A -> B or C
-B -> B or C
-C -> B or C
-then LLVM identifies 2 natural loops of size 1, with the singleton block in each, and
-we can't identify that as irreducible :9
-*/
-
-if (!Loop) return false;
-SetVector<MachineBasicBlock *> Succy;
-auto All = Loop->getBlocks();
-errs() << "inspakcting a loop with " << All.size() << "blcks\n";
-for (auto *Block : All) {
-  // Check blocks in this loop itself, not inner loops.
-  if (Block != Header && MLI.getLoopFor(Block) == Loop) {
-errs() << "chak a blockk\n";
-    for (MachineBasicBlock *Pred : Block->predecessors()) {
-errs() << "  chak a blockk predd\n";
-      if (!Loop->contains(Pred)) {
-        Succy.insert(Block);
-        break;
+  // DFS through Loop's body, looking for irreducible control flow. Loop is
+  // natural, and we stay in its body, and we treat any nested loops
+  // monolithically, so any cycles we encounter indicate irreducibility.
+  // Note all the blocks that are in such an irreducible position.
+  SmallPtrSet<MachineBasicBlock *, 8> OnStack;
+  SmallPtrSet<MachineBasicBlock *, 8> Visited;
+  SmallVector<SuccessorList, 4> LoopWorklist;
+  LoopWorklist.push_back(SuccessorList(Header));
+  OnStack.insert(Header);
+  Visited.insert(Header);
+  while (!LoopWorklist.empty()) {
+    SuccessorList &Top = LoopWorklist.back();
+errs() << "top: " << Top.getBlock()->getName() << '\n';
+    if (Top.HasNext()) {
+      MachineBasicBlock *Next = Top.Next();
+errs() << "next: " << Next->getName() << '\n';
+      if (Next == Header || (Loop && !Loop->contains(Next)))
+        continue;
+      if (LLVM_LIKELY(OnStack.insert(Next).second)) {
+errs() << "add to stack, and add to queue\n";
+#if 0
+        if (!Visited.insert(Next).second) {
+          OnStack.erase(Next);
+          continue;
+        }
+#endif
+        MachineLoop *InnerLoop = MLI.getLoopFor(Next);
+        if (InnerLoop != Loop)
+          LoopWorklist.push_back(SuccessorList(InnerLoop));
+        else
+          LoopWorklist.push_back(SuccessorList(Next));
+      } else {
+errs() << "baaad " << Next->getName() << '\n';
+        BadBlocks.insert(Next);
       }
+      continue;
+    }
+errs() << "drop from stack to stack\n";
+    OnStack.erase(Top.getBlock());
+    LoopWorklist.pop_back();
+  }
+
+  // Most likely, we didn't find any irreducible control flow.
+  if (LLVM_LIKELY(BadBlocks.empty()))
+    return false;
+
+errs() << "we say irreduyciuble! " << MF.getFunction().getName() << " with " << BadBlocks.size() << '\n';
+
+// Create a new "superheader", which can direct control flow to any of the
+// bad blocks we noted as being super-loop entries (that is, we really need
+// a non-natural loop here that has multiple entries; in Relooper terms,
+// a Loop with a Multiple). Any block which used to go to them
+// must now go through the new superheader.
+
+
+
+
+
+// Create a dispatch block which will
+// contain a jump table to any block in the problematic set of blocks.
+MachineBasicBlock *Dispatch = MF.CreateMachineBasicBlock();
+MF.insert(MF.end(), Dispatch);
+MLI.changeLoopFor(Dispatch, Loop); // XXX we may want to throw out MLI after every change, and recompute - not fast, but fast if no irreducible. or we should not use MLI entirely and be efficient.
+
+// Add the jump table.
+const auto &TII = *MF.getSubtarget<WebAssemblySubtarget>().getInstrInfo();
+MachineInstrBuilder MIB = BuildMI(*Dispatch, Dispatch->end(), DebugLoc(),
+                                  TII.get(WebAssembly::BR_TABLE_I32));
+
+// Add the register which will be used to tell the jump table which block to
+// jump to.
+MachineRegisterInfo &MRI = MF.getRegInfo();
+unsigned Reg = MRI.createVirtualRegister(&WebAssembly::I32RegClass);
+MIB.addReg(Reg);
+
+// Compute the indices in the superheader, one for each bad block, and
+// add them as successors.
+DenseMap<MachineBasicBlock *, unsigned> Indices;
+for (auto *MBB : BadBlocks) {
+  auto Pair = Indices.insert(std::make_pair(MBB, 0));
+  if (!Pair.second)
+    continue;
+
+  unsigned Index = MIB.getInstr()->getNumExplicitOperands() - 1;
+  Pair.first->second = Index;
+
+  MIB.addMBB(MBB);
+  Dispatch->addSuccessor(MBB);
+}
+
+// Rewrite the problematic successors for every that wants to reach the
+// bad blocks. For simplicity, we just introduce a new block for every
+// edge we need to rewrite. (Fancier things are possible.)
+
+DenseSet<MachineBasicBlock *> AllPreds;
+for (auto *MBB : BadBlocks) {
+  for (auto *Pred : MBB->predecessors()) {
+    if (Pred != Dispatch) {
+      AllPreds.insert(Pred);
     }
   }
 }
-if (Succy.empty()) {
-  errs() << MF.getFunction().getName() << " loooks okay...?\n";
-  return false;
+errs() << "total preds to bads: " << AllPreds.size() << '\n';
+
+for (MachineBasicBlock *MBB : AllPreds) {
+  DenseMap<MachineBasicBlock *, MachineBasicBlock *> Map;
+  for (auto *Succ : MBB->successors()) {
+    if (!BadBlocks.count(Succ))
+      continue;
+
+    // This is a successor we need to rewrite.
+    MachineBasicBlock *Split = MF.CreateMachineBasicBlock();
+    MF.insert(MBB->isLayoutSuccessor(Succ) ? MachineFunction::iterator(Succ)
+                                           : MF.end(),
+              Split);
+    MLI.changeLoopFor(Split, Loop); // XXX
+
+    // Set the jump table's register of the index of the block we wish to
+    // jump to, and jump to the jump table.
+    BuildMI(*Split, Split->end(), DebugLoc(), TII.get(WebAssembly::CONST_I32),
+            Reg)
+        .addImm(Indices[Succ]);
+    BuildMI(*Split, Split->end(), DebugLoc(), TII.get(WebAssembly::BR))
+        .addMBB(Dispatch);
+    Split->addSuccessor(Dispatch);
+    Map[Succ] = Split;
+  }
+  // Remap the terminator operands and the successor list.
+  for (MachineInstr &Term : MBB->terminators())
+    for (auto &Op : Term.explicit_uses())
+      if (Op.isMBB() && Indices.count(Op.getMBB()))
+        Op.setMBB(Map[Op.getMBB()]);
+  for (auto Rewrite : Map)
+    MBB->replaceSuccessor(Rewrite.first, Rewrite.second);
 }
 
-errs() << "we say irrrrrr " << MF.getFunction().getName() << " : " << Succy.size() << "]\n";
+// Create a fake default label, because br_table requires one.
+MIB.addMBB(MIB.getInstr()
+               ->getOperand(MIB.getInstr()->getNumExplicitOperands() - 1)
+               .getMBB());
 
-// Create a new loop superheader, which can direct control flow to any of the
-// blocks we noted as being loop entries.
 
-return false;
+
+
+
+return true;
 }
 
 }
