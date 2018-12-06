@@ -168,3 +168,52 @@ if.end9:                                          ; preds = %if.end
   ret void
 }
 
+; Multi-level irreducibility, after reducing in the main scope we must then
+; reduce in the inner loop that we just created.
+; CHECK: br_table
+; CHECK: br_table
+define hidden void @pi_next() local_unnamed_addr #0 {
+entry:
+  br i1 undef, label %sw.bb5, label %return
+
+sw.bb5:                                           ; preds = %entry
+  br i1 undef, label %if.then.i49, label %if.else.i52
+
+if.then.i49:                                      ; preds = %sw.bb5
+  br label %for.inc197.i
+
+if.else.i52:                                      ; preds = %sw.bb5
+  br label %for.cond57.i
+
+for.cond57.i:                                     ; preds = %for.inc205.i, %if.else.i52
+  store i32 0, i32* undef, align 4
+  br label %for.cond65.i
+
+for.cond65.i:                                     ; preds = %for.inc201.i, %for.cond57.i
+  br i1 undef, label %for.body70.i, label %for.inc205.i
+
+for.body70.i:                                     ; preds = %for.cond65.i
+  br label %for.cond76.i
+
+for.cond76.i:                                     ; preds = %for.inc197.i, %for.body70.i
+  %0 = phi i32 [ %inc199.i, %for.inc197.i ], [ 0, %for.body70.i ]
+  %cmp81.i = icmp slt i32 %0, 0
+  br i1 %cmp81.i, label %for.body82.i, label %for.inc201.i
+
+for.body82.i:                                     ; preds = %for.cond76.i
+  br label %for.inc197.i
+
+for.inc197.i:                                     ; preds = %for.body82.i, %if.then.i49
+  %inc199.i = add nsw i32 undef, 1
+  br label %for.cond76.i
+
+for.inc201.i:                                     ; preds = %for.cond76.i
+  br label %for.cond65.i
+
+for.inc205.i:                                     ; preds = %for.cond65.i
+  br label %for.cond57.i
+
+return:                                           ; preds = %entry
+  ret void
+}
+
