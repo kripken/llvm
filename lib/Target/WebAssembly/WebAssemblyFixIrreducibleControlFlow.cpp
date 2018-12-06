@@ -280,7 +280,7 @@ errs() << "   tootal " << RewriteSuccs.size() << '\n';
 // An alternatie approahc
 
 errs() << "we are considering " << MF.getFunction().getName() << " : " << Loop << '\n';
-if (Loop) errs() << "  a loop of size " << Loop->getBlocks().size() << '\n';
+if (Loop) errs() << "  a loop of size " << Loop->getBlocks().size() << " with header " << Loop->getHeader()->getName() << '\n';
 
 // TODO: iterations?
 
@@ -289,14 +289,14 @@ if (Loop) errs() << "  a loop of size " << Loop->getBlocks().size() << '\n';
   // cannot. Loopers reachable from the non-loopers are loop entries: if there is
   // 1, it is a natural loop; otherwise, we have irreducible control flow.
 
-  std::set<MachineBasicBlock *> Blocks;
+  std::set<MachineBasicBlock *> LoopBlocks;
   if (Loop) {
     for (auto *MBB : Loop->getBlocks()) {
-      Blocks.insert(MBB);
+      LoopBlocks.insert(MBB);
     }
   } else {
     for (auto &MBB : MF) {
-      Blocks.insert(&MBB);
+      LoopBlocks.insert(&MBB);
     }
   }
 #if 0
@@ -309,18 +309,22 @@ if (Loop) errs() << "  a loop of size " << Loop->getBlocks().size() << '\n';
   // or if in a loop, the loop header.
   // XXX stop looking past loop exits..?
   auto Canonicalize = [&](MachineBasicBlock *MBB) -> MachineBasicBlock * {
+    if (Loop && MBB == Loop->getHeader()) {
+      // Ignore branches back to the loop's natural header.
+      return nullptr;
+    }
     MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
     if (InnerLoop == Loop) {
-      if (Loop && MBB == Loop->getHeader()) {
-        // Ignore branches back to the loop's natural header.
+      return MBB;
+    } else {
+      // This is either in an outer or an inner loop, and not in ours.
+      if (!LoopBlocks.count(MBB)) {
+        // It's in outer code, ignore it.
         return nullptr;
       }
-      return MBB;
-    } else if (InnerLoop) {
+      assert(InnerLoop);
+      // It's in an inner loop, canonicalize it to the header of that loop.
       return InnerLoop->getHeader();
-    } else {
-      // We are in a loop, and this block is outside of it - ignore XXX ?
-      return nullptr;
     }
   };
 
@@ -334,61 +338,70 @@ if (Loop) errs() << "  a loop of size " << Loop->getBlocks().size() << '\n';
   // Compute which (canonicalized) blocks each block can reach.
   std::unordered_map<MachineBasicBlock *, std::unordered_set<MachineBasicBlock *>> Reachable;
   std::set<MachineBasicBlock *> WorkList;
-  for (auto *MBB : Blocks) {
+  for (auto *MBB : LoopBlocks) {
     MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
     if (InnerLoop == Loop) {
       WorkList.insert(MBB);
       for (auto *Succ : MBB->successors()) {
         MaybeInsert(Reachable[MBB], Succ);
       }
-    } else if (InnerLoop) {
+    } else {
+      // It can't be in an outer loop - we loop on LoopBlocks - and so it must be
+      // an inner loop.
+      assert(InnerLoop);
+      // We canonicalize it to the header of that loop, so ignore if it isn't that.
       if (MBB != InnerLoop->getHeader()) {
         continue;
       }
       WorkList.insert(MBB);
+      // The successors are those of the loop.
       SmallVector<MachineBasicBlock *, 2> ExitBlocks;
       InnerLoop->getExitBlocks(ExitBlocks);
       for (auto *Succ : ExitBlocks) {
         MaybeInsert(Reachable[MBB], Succ);
       }
-    } else {
-      // We are in a loop, and this block is outside of it - ignore XXX ?
-#if 0
-      WorkList.insert(MBB);
-      for (auto *Succ : MBB->successors()) {
-        MaybeInsert(Reachable[MBB], Succ);
-      }
-#endif
     }
   }
+errs() << "Relevant blocks for reachability: " << Reachable.size() << '\n';
   while (!WorkList.empty()) {
     MachineBasicBlock* MBB = *WorkList.begin();
 //errs() << "at " << MBB->getName() << '\n';
     WorkList.erase(WorkList.begin());
-    bool Inserted = false;
-    auto Successors = Reachable[MBB];
-    for (auto *Succ : Successors) {
+    if (!MBB) continue;
+    SmallSet<MachineBasicBlock *, 4> ToAdd;
+    for (auto *Succ : Reachable[MBB]) {
       assert(Succ);
+      if (Succ == MBB) continue;
       for (auto *Succ2 : Reachable[Succ]) {
         assert(Succ2);
-        if (Reachable[MBB].insert(Succ2).second) {
+        if (!Reachable[MBB].count(Succ2)) {
+          ToAdd.insert(Succ2);
 //errs() << "  add " << MBB->getName() << " => " << Succ2->getName() << '\n';
-          Inserted = true;
         }
       }
     }
-    if (Inserted) {
+    if (!ToAdd.empty()) {
+      for (auto *Add : ToAdd) {
+        Reachable[MBB].insert(Add);
+      }
       // This is correct for both a block and a block representing a loop, as
       // the loop is natural and so the predecessors are all predecessors of
       // the loop header, which is the block we have here.
       for (auto *Pred : MBB->predecessors()) {
-        WorkList.insert(Pred);
+        WorkList.insert(Canonicalize(Pred));
       }
     }
   }
+errs() << "Computed reachabilities\n";
+for (auto& pair : Reachable) {
+  errs() << "bb." << pair.first->getNumber() << "." << pair.first->getName() << '\n';
+  for (auto* S : pair.second) {
+    errs() << "  => bb." << S->getNumber() << "." << S->getName() << '\n';
+  }
+}
 
   std::unordered_set<MachineBasicBlock *> Loopers;
-  for (auto MBB : Blocks) {
+  for (auto MBB : LoopBlocks) {
     if (Reachable[MBB].count(MBB)) {
       Loopers.insert(MBB);
     }
@@ -402,7 +415,7 @@ assert(Loopers.count(Header) == 0);
 assert(Loopers.size() < 1000);
 
   SmallPtrSet<MachineBasicBlock *, 1> Entries;
-  for (auto MBB : Blocks) {
+  for (auto MBB : LoopBlocks) {
     if (Loopers.count(MBB)) {
       for (auto *Pred : MBB->predecessors()) {
         if (!Loopers.count(Pred)) {
@@ -419,7 +432,7 @@ errs() << "entries: " << Entries.size() << '\n';
   auto BadBlocks = Entries;
 
   for (auto* MBB : BadBlocks) {
-    errs() << " bad: " << MBB->getName() << '\n';
+    errs() << " bad: bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
   }
 
 #if 0
