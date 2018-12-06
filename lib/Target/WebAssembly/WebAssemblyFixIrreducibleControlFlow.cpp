@@ -405,12 +405,13 @@ for (auto& pair : Reachable) {
   }
 }
 
-  std::unordered_set<MachineBasicBlock *> Loopers;
+  SetVector<MachineBasicBlock *> Loopers;
   for (auto MBB : LoopBlocks) {
     if (Reachable[MBB].count(MBB)) {
       Loopers.insert(MBB);
     }
   }
+
 //errs() << "loopers: " << Loopers.size() << '\n';
 
 // The header cannot be a looper. At the toplevel, LLVM does not allow the entry to be
@@ -419,83 +420,35 @@ assert(Loopers.count(Header) == 0);
 
 assert(Loopers.size() < 1000);
 
-  SmallPtrSet<MachineBasicBlock *, 1> Entries;
-  for (auto MBB : LoopBlocks) {
-    if (Loopers.count(MBB)) {
-      for (auto *Pred : MBB->predecessors()) {
+  SmallPtrSet<MachineBasicBlock *, 4> Entries;
+  SmallVector<MachineBasicBlock *, 4> SortedEntries;
+  for (auto *Looper : Loopers) {
+    if (Loopers.count(Looper)) {
+      for (auto *Pred : Looper->predecessors()) {
         Pred = Canonicalize(Pred);
         if (Pred && !Loopers.count(Pred)) {
-          Entries.insert(MBB);
+          Entries.insert(Looper);
+          SortedEntries.push_back(Looper);
           break;
         }
       }
     }
   }
+
+  std::sort(SortedEntries.begin(), SortedEntries.end(), [&](const MachineBasicBlock *A, const MachineBasicBlock *B) {
+    auto ANum = A->getNumber();
+    auto BNum = B->getNumber();
+    assert(ANum != -1 && BNum != -1);
+    assert(ANum != BNum);
+    return ANum < BNum;
+  });
 //errs() << "entries: " << Entries.size() << '\n';
 
   if (Entries.size() <= 1) return false;
 
-  auto BadBlocks = Entries;
-
-for (auto* MBB : BadBlocks) {
+for (auto* MBB : SortedEntries) {
 //errs() << " bad: bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
 }
-
-#if 0
-  // DFS through Loop's body, looking for irreducible control flow. Loop is
-  // natural, and we stay in its body, and we treat any nested loops
-  // monolithically, so any cycles we encounter indicate irreducibility.
-  // Note all the blocks that are in such an irreducible position.
-  SmallPtrSet<MachineBasicBlock *, 8> OnStack;
-  SmallVector<SuccessorList, 4> LoopWorklist;
-  LoopWorklist.push_back(SuccessorList(Header));
-  OnStack.insert(Header);
-  while (!LoopWorklist.empty()) {
-    SuccessorList &Top = LoopWorklist.back();
-//errs() << MF.getFunction().getName() << " top: " << Top.getBlock()->getName() << '\n';
-    if (Top.HasNext()) {
-      MachineBasicBlock *Next = Top.Next();
-//errs() << "next: " << Next->getName() << '\n';
-      if (Next == Header || (Loop && !Loop->contains(Next)))// || BadBlocks.count(Next))
-        continue;
-      if (LLVM_LIKELY(OnStack.insert(Next).second)) {
-//errs() << "add to stack, and add to queue\n";
-        MachineLoop *InnerLoop = MLI.getLoopFor(Next);
-        if (InnerLoop != Loop)
-          LoopWorklist.push_back(SuccessorList(InnerLoop));
-        else
-          LoopWorklist.push_back(SuccessorList(Next));
-      } else {
-//errs() << "baaad " << Next->getName() << '\n';
-        BadBlocks.insert(Next);
-      }
-      continue;
-    }
-//errs() << "drop from stack to stack\n";
-    OnStack.erase(Top.getBlock());
-    LoopWorklist.pop_back();
-  }
-
-  // Most likely, we didn't find any irreducible control flow.
-  if (LLVM_LIKELY(BadBlocks.empty()))
-    return false;
-#endif
-
-
-
-
-
-//errs() << "we say irreduyciuble! " << MF.getFunction().getName() << " with " << BadBlocks.size() << '\n';
-
-// Create a new "superheader", which can direct control flow to any of the
-// bad blocks we noted as being super-loop entries (that is, we really need
-// a non-natural loop here that has multiple entries; in Relooper terms,
-// a Loop with a Multiple). Any block which used to go to them
-// must now go through the new superheader.
-
-
-
-
 
 // Create a dispatch block which will
 // contain a jump table to any block in the problematic set of blocks.
@@ -517,7 +470,7 @@ MIB.addReg(Reg);
 // Compute the indices in the superheader, one for each bad block, and
 // add them as successors.
 DenseMap<MachineBasicBlock *, unsigned> Indices;
-for (auto *MBB : BadBlocks) {
+for (auto *MBB : SortedEntries) {
   auto Pair = Indices.insert(std::make_pair(MBB, 0));
   if (!Pair.second)
     continue;
@@ -534,7 +487,7 @@ for (auto *MBB : BadBlocks) {
 // edge we need to rewrite. (Fancier things are possible.)
 
 DenseSet<MachineBasicBlock *> AllPreds;
-for (auto *MBB : BadBlocks) {
+for (auto *MBB : SortedEntries) {
   for (auto *Pred : MBB->predecessors()) {
     if (Pred != Dispatch) {
       AllPreds.insert(Pred);
@@ -546,8 +499,9 @@ for (auto *MBB : BadBlocks) {
 for (MachineBasicBlock *MBB : AllPreds) {
   DenseMap<MachineBasicBlock *, MachineBasicBlock *> Map;
   for (auto *Succ : MBB->successors()) {
-    if (!BadBlocks.count(Succ))
+    if (!Entries.count(Succ)) {
       continue;
+    }
 
     // This is a successor we need to rewrite.
     MachineBasicBlock *Split = MF.CreateMachineBasicBlock();
