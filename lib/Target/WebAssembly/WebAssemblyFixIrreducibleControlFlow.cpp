@@ -394,9 +394,9 @@ errs() << "Relevant blocks for reachability: " << Reachable.size() << '\n';
   }
 errs() << "Computed reachabilities\n";
 for (auto& pair : Reachable) {
-  errs() << "bb." << pair.first->getNumber() << "." << pair.first->getName() << '\n';
+errs() << "bb." << pair.first->getNumber() << "." << pair.first->getName() << '\n';
   for (auto* S : pair.second) {
-    errs() << "  => bb." << S->getNumber() << "." << S->getName() << '\n';
+errs() << "  => bb." << S->getNumber() << "." << S->getName() << '\n';
   }
 }
 
@@ -418,7 +418,8 @@ assert(Loopers.size() < 1000);
   for (auto MBB : LoopBlocks) {
     if (Loopers.count(MBB)) {
       for (auto *Pred : MBB->predecessors()) {
-        if (!Loopers.count(Pred)) {
+        Pred = Canonicalize(Pred);
+        if (Pred && !Loopers.count(Pred)) {
           Entries.insert(MBB);
           break;
         }
@@ -431,9 +432,9 @@ errs() << "entries: " << Entries.size() << '\n';
 
   auto BadBlocks = Entries;
 
-  for (auto* MBB : BadBlocks) {
-    errs() << " bad: bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
-  }
+for (auto* MBB : BadBlocks) {
+errs() << " bad: bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
+}
 
 #if 0
   // DFS through Loop's body, looking for irreducible control flow. Loop is
