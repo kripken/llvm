@@ -185,7 +185,7 @@ if (getenv("DAN")) {
   if (LLVM_LIKELY(RewriteSuccs.empty()))
     return false;
 
-errs() << "irreduyciuble! " << MF.getFunction().getName() << " with " << RewriteSuccs.size() << '\n';
+//errs() << "irreduyciuble! " << MF.getFunction().getName() << " with " << RewriteSuccs.size() << '\n';
 
   LLVM_DEBUG(dbgs() << "Irreducible control flow detected!\n");
 
@@ -233,7 +233,7 @@ errs() << "irreduyciuble! " << MF.getFunction().getName() << " with " << Rewrite
       if (Succ != Header && (!Loop || Loop->contains(Succ)))
         SuccWorklist.push_back(Succ);
   }
-errs() << "   tootal " << RewriteSuccs.size() << '\n';
+//errs() << "   tootal " << RewriteSuccs.size() << '\n';
   // Rewrite the problematic successors for every block in RewriteSuccs.
   // For simplicity, we just introduce a new block for every edge we need to
   // rewrite. Fancier things are possible.
@@ -279,8 +279,10 @@ errs() << "   tootal " << RewriteSuccs.size() << '\n';
 
 // An alternatie approahc
 
-errs() << "we are considering " << MF.getFunction().getName() << " : " << Loop << '\n';
-if (Loop) errs() << "  a loop of size " << Loop->getBlocks().size() << " with header " << Loop->getHeader()->getName() << '\n';
+//errs() << "we are considering " << MF.getFunction().getName() << " : " << Loop << '\n';
+if (Loop) {
+//errs() << "  a loop of size " << Loop->getBlocks().size() << " with header " << Loop->getHeader()->getName() << '\n';
+}
 
 // TODO: iterations?
 
@@ -362,7 +364,7 @@ if (Loop) errs() << "  a loop of size " << Loop->getBlocks().size() << " with he
       }
     }
   }
-errs() << "Relevant blocks for reachability: " << Reachable.size() << '\n';
+//errs() << "Relevant blocks for reachability: " << Reachable.size() << '\n';
   while (!WorkList.empty()) {
     MachineBasicBlock* MBB = *WorkList.begin();
 //errs() << "at " << MBB->getName() << '\n';
@@ -392,11 +394,11 @@ errs() << "Relevant blocks for reachability: " << Reachable.size() << '\n';
       }
     }
   }
-errs() << "Computed reachabilities\n";
+//errs() << "Computed reachabilities\n";
 for (auto& pair : Reachable) {
-errs() << "bb." << pair.first->getNumber() << "." << pair.first->getName() << '\n';
+//errs() << "bb." << pair.first->getNumber() << "." << pair.first->getName() << '\n';
   for (auto* S : pair.second) {
-errs() << "  => bb." << S->getNumber() << "." << S->getName() << '\n';
+//errs() << "  => bb." << S->getNumber() << "." << S->getName() << '\n';
   }
 }
 
@@ -406,7 +408,7 @@ errs() << "  => bb." << S->getNumber() << "." << S->getName() << '\n';
       Loopers.insert(MBB);
     }
   }
-errs() << "loopers: " << Loopers.size() << '\n';
+//errs() << "loopers: " << Loopers.size() << '\n';
 
 // The header cannot be a looper. At the toplevel, LLVM does not allow the entry to be
 // in a loop, and in a natural loop we should ignore the header.
@@ -426,14 +428,14 @@ assert(Loopers.size() < 1000);
       }
     }
   }
-errs() << "entries: " << Entries.size() << '\n';
+//errs() << "entries: " << Entries.size() << '\n';
 
   if (Entries.size() <= 1) return false;
 
   auto BadBlocks = Entries;
 
 for (auto* MBB : BadBlocks) {
-errs() << " bad: bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
+//errs() << " bad: bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
 }
 
 #if 0
@@ -447,26 +449,26 @@ errs() << " bad: bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
   OnStack.insert(Header);
   while (!LoopWorklist.empty()) {
     SuccessorList &Top = LoopWorklist.back();
-errs() << MF.getFunction().getName() << " top: " << Top.getBlock()->getName() << '\n';
+//errs() << MF.getFunction().getName() << " top: " << Top.getBlock()->getName() << '\n';
     if (Top.HasNext()) {
       MachineBasicBlock *Next = Top.Next();
-errs() << "next: " << Next->getName() << '\n';
+//errs() << "next: " << Next->getName() << '\n';
       if (Next == Header || (Loop && !Loop->contains(Next)))// || BadBlocks.count(Next))
         continue;
       if (LLVM_LIKELY(OnStack.insert(Next).second)) {
-errs() << "add to stack, and add to queue\n";
+//errs() << "add to stack, and add to queue\n";
         MachineLoop *InnerLoop = MLI.getLoopFor(Next);
         if (InnerLoop != Loop)
           LoopWorklist.push_back(SuccessorList(InnerLoop));
         else
           LoopWorklist.push_back(SuccessorList(Next));
       } else {
-errs() << "baaad " << Next->getName() << '\n';
+//errs() << "baaad " << Next->getName() << '\n';
         BadBlocks.insert(Next);
       }
       continue;
     }
-errs() << "drop from stack to stack\n";
+//errs() << "drop from stack to stack\n";
     OnStack.erase(Top.getBlock());
     LoopWorklist.pop_back();
   }
@@ -480,7 +482,7 @@ errs() << "drop from stack to stack\n";
 
 
 
-errs() << "we say irreduyciuble! " << MF.getFunction().getName() << " with " << BadBlocks.size() << '\n';
+//errs() << "we say irreduyciuble! " << MF.getFunction().getName() << " with " << BadBlocks.size() << '\n';
 
 // Create a new "superheader", which can direct control flow to any of the
 // bad blocks we noted as being super-loop entries (that is, we really need
@@ -536,7 +538,7 @@ for (auto *MBB : BadBlocks) {
     }
   }
 }
-errs() << "total preds to bads: " << AllPreds.size() << '\n';
+//errs() << "total preds to bads: " << AllPreds.size() << '\n';
 
 for (MachineBasicBlock *MBB : AllPreds) {
   DenseMap<MachineBasicBlock *, MachineBasicBlock *> Map;

@@ -92,3 +92,73 @@ bb13:
 bb19:
   ret void
 }
+
+; A simple loop 2 blocks that are both entries.
+
+define internal i32 @test2(i32) noinline {
+entry:
+  br label %A0
+
+A0:
+  %a0a = tail call i32 @test2(i32 1)
+  %a0b = icmp eq i32 %a0a, 0
+  br i1 %a0b, label %A1, label %A2
+
+A1:
+  %a1a = tail call i32 @test2(i32 2)
+  %a1b = icmp eq i32 %a1a, 0
+  br i1 %a1b, label %A1, label %A2
+
+A2:
+  %a2a = tail call i32 @test2(i32 3)
+  %a2b = icmp eq i32 %a2a, 0
+  br i1 %a2b, label %A1, label %A2
+}
+
+; An interesting loop with inner loop and if-else structure too.
+
+define hidden void @tricky(i32 %ws) #0 {
+entry:
+  %ws.addr = alloca i32, align 4
+  store volatile i32 %ws, i32* %ws.addr, align 4
+  %0 = load volatile i32, i32* %ws.addr, align 4
+  %tobool = icmp ne i32 %0, 0
+  br i1 %tobool, label %if.then, label %if.end
+
+if.then:                                          ; preds = %entry
+  br label %wynn
+
+if.end:                                           ; preds = %entry
+  %1 = load volatile i32, i32* %ws.addr, align 4
+  %tobool1 = icmp ne i32 %1, 0
+  br i1 %tobool1, label %if.end9, label %if.then2
+
+if.then2:                                         ; preds = %if.end
+  br label %for.cond
+
+for.cond:                                         ; preds = %wynn, %if.then7, %if.then2
+  %2 = load volatile i32, i32* %ws.addr, align 4
+  %tobool3 = icmp ne i32 %2, 0
+  br i1 %tobool3, label %if.then4, label %if.end5
+
+if.then4:                                         ; preds = %for.cond
+  br label %if.end5
+
+if.end5:                                          ; preds = %if.then4, %for.cond
+  %3 = load volatile i32, i32* %ws.addr, align 4
+  %tobool6 = icmp ne i32 %3, 0
+  br i1 %tobool6, label %if.then7, label %if.end8
+
+if.then7:                                         ; preds = %if.end5
+  br label %for.cond
+
+if.end8:                                          ; preds = %if.end5
+  br label %wynn
+
+wynn:                                             ; preds = %if.end8, %if.then
+  br label %for.cond
+
+if.end9:                                          ; preds = %if.end
+  ret void
+}
+
