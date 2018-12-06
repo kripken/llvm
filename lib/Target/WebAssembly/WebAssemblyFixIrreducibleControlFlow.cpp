@@ -350,6 +350,9 @@ if (Loop) {
     } else {
       // It can't be in an outer loop - we loop on LoopBlocks - and so it must be
       // an inner loop.
+if (!InnerLoop) {
+  //errs() << "very bad " << Loop << " : " << InnerLoop << " : bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
+}
       assert(InnerLoop);
       // We canonicalize it to the header of that loop, so ignore if it isn't that.
       if (MBB != InnerLoop->getHeader()) {
@@ -367,7 +370,7 @@ if (Loop) {
 //errs() << "Relevant blocks for reachability: " << Reachable.size() << '\n';
   while (!WorkList.empty()) {
     MachineBasicBlock* MBB = *WorkList.begin();
-//errs() << "at " << MBB->getName() << '\n';
+////errs() << "at " << MBB->getName() << '\n';
     WorkList.erase(WorkList.begin());
     if (!MBB) continue;
     SmallSet<MachineBasicBlock *, 4> ToAdd;
@@ -378,7 +381,7 @@ if (Loop) {
         assert(Succ2);
         if (!Reachable[MBB].count(Succ2)) {
           ToAdd.insert(Succ2);
-//errs() << "  add " << MBB->getName() << " => " << Succ2->getName() << '\n';
+////errs() << "  add " << MBB->getName() << " => " << Succ2->getName() << '\n';
         }
       }
     }
@@ -394,11 +397,11 @@ if (Loop) {
       }
     }
   }
-//errs() << "Computed reachabilities\n";
+////errs() << "Computed reachabilities\n";
 for (auto& pair : Reachable) {
-//errs() << "bb." << pair.first->getNumber() << "." << pair.first->getName() << '\n';
+////errs() << "bb." << pair.first->getNumber() << "." << pair.first->getName() << '\n';
   for (auto* S : pair.second) {
-//errs() << "  => bb." << S->getNumber() << "." << S->getName() << '\n';
+////errs() << "  => bb." << S->getNumber() << "." << S->getName() << '\n';
   }
 }
 
@@ -498,7 +501,7 @@ for (auto* MBB : BadBlocks) {
 // contain a jump table to any block in the problematic set of blocks.
 MachineBasicBlock *Dispatch = MF.CreateMachineBasicBlock();
 MF.insert(MF.end(), Dispatch);
-MLI.changeLoopFor(Dispatch, Loop); // XXX we may want to throw out MLI after every change, and recompute - not fast, but fast if no irreducible. or we should not use MLI entirely and be efficient.
+MLI.changeLoopFor(Dispatch, Loop);
 
 // Add the jump table.
 const auto &TII = *MF.getSubtarget<WebAssemblySubtarget>().getInstrInfo();
@@ -551,7 +554,7 @@ for (MachineBasicBlock *MBB : AllPreds) {
     MF.insert(MBB->isLayoutSuccessor(Succ) ? MachineFunction::iterator(Succ)
                                            : MF.end(),
               Split);
-    MLI.changeLoopFor(Split, Loop); // XXX
+    MLI.changeLoopFor(Split, Loop);
 
     // Set the jump table's register of the index of the block we wish to
     // jump to, and jump to the jump table.
@@ -611,7 +614,7 @@ if (getenv("DAN")) {
   auto DoVisitLoop = [&](MachineFunction&MF, MachineLoopInfo& MLI, MachineLoop *Loop) {
     if (VisitLoop(MF, MLI, Loop)) {
       // We rewrote part of the function; recompute MLI and start again.
-      MLI.runOnMachineFunction(MF);
+      // XXX MLI.runOnMachineFunction(MF);
 //MF.dump();
       Changed = true;
     }
@@ -622,6 +625,7 @@ if (getenv("DAN")) {
 
   // Visit all the loops.
   // XXX we need to loop here, as each operation we perform creates a new natural function..?
+  // but it can't contain irreducible control flow, we fixed it
   SmallVector<MachineLoop *, 8> Worklist(MLI.begin(), MLI.end());
   while (!Worklist.empty()) {
     MachineLoop *CurLoop = Worklist.pop_back_val();
