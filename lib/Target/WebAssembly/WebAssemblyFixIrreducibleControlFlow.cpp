@@ -299,7 +299,6 @@ if (Loop) errs() << "  a loop of size " << Loop->getBlocks().size() << '\n';
       Blocks.insert(&MBB);
     }
   }
-errs() << "mo1\n";
 #if 0
   auto Relevant = [&](MachineBasicBlock *MBB) {
     return MLI.getLoopFor(Succ) == Loop;
@@ -309,15 +308,25 @@ errs() << "mo1\n";
   // Get a canonical block to represent a block or a loop: the block,
   // or if in a loop, the loop header.
   // XXX stop looking past loop exits..?
-  auto Canonicalize = [&](MachineBasicBlock *MBB) {
+  auto Canonicalize = [&](MachineBasicBlock *MBB) -> MachineBasicBlock * {
     MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
     if (InnerLoop == Loop) {
+      if (Loop && MBB == Loop->getHeader()) {
+        // Ignore branches back to the loop's natural header.
+        return nullptr;
+      }
       return MBB;
     } else if (InnerLoop) {
       return InnerLoop->getHeader();
     } else {
-      return &*MF.begin();
+      // We are in a loop, and this block is outside of it - ignore XXX ?
+      return nullptr;
     }
+  };
+
+  auto MaybeInsert = [&](std::unordered_set<MachineBasicBlock *>& Set, MachineBasicBlock *MBB) {
+    if (!MBB) return;
+    Set.insert(Canonicalize(MBB));
   };
 
   // Compute which (canonicalized) blocks each block can reach.
@@ -328,7 +337,7 @@ errs() << "mo1\n";
     if (InnerLoop == Loop) {
       WorkList.insert(MBB);
       for (auto *Succ : MBB->successors()) {
-        Reachable[MBB].insert(Canonicalize(Succ));
+        MaybeInsert(Reachable[MBB], Succ);
       }
     } else if (InnerLoop) {
       if (MBB != InnerLoop->getHeader()) {
@@ -338,13 +347,18 @@ errs() << "mo1\n";
       SmallVector<MachineBasicBlock *, 2> ExitBlocks;
       InnerLoop->getExitBlocks(ExitBlocks);
       for (auto *Succ : ExitBlocks) {
-        Reachable[MBB].insert(Canonicalize(Succ));
+        MaybeInsert(Reachable[MBB], Succ);
       }
     } else {
       // We are in a loop, and this block is outside of it - ignore XXX ?
+#if 0
+      WorkList.insert(MBB);
+      for (auto *Succ : MBB->successors()) {
+        MaybeInsert(Reachable[MBB], Succ);
+      }
+#endif
     }
   }
-errs() << "mo2\n";
   while (!WorkList.empty()) {
     MachineBasicBlock* MBB = *WorkList.begin();
 //errs() << "at " << MBB->getName() << '\n';
@@ -352,7 +366,9 @@ errs() << "mo2\n";
     bool Inserted = false;
     auto Successors = Reachable[MBB];
     for (auto *Succ : Successors) {
+      assert(Succ);
       for (auto *Succ2 : Reachable[Succ]) {
+        assert(Succ2);
         if (Reachable[MBB].insert(Succ2).second) {
 //errs() << "  add " << MBB->getName() << " => " << Succ2->getName() << '\n';
           Inserted = true;
@@ -368,7 +384,6 @@ errs() << "mo2\n";
       }
     }
   }
-errs() << "mo3\n";
 
   std::unordered_set<MachineBasicBlock *> Loopers;
   for (auto MBB : Blocks) {
@@ -377,6 +392,12 @@ errs() << "mo3\n";
     }
   }
 errs() << "loopers: " << Loopers.size() << '\n';
+
+// The header cannot be a looper. At the toplevel, LLVM does not allow the entry to be
+// in a loop, and in a natural loop we should ignore the header.
+assert(Loopers.count(Header) == 0);
+
+assert(Loopers.size() < 1000);
 
   SmallPtrSet<MachineBasicBlock *, 1> Entries;
   for (auto MBB : Blocks) {
@@ -578,6 +599,7 @@ if (getenv("DAN")) {
       if (VisitLoop(MF, MLI, nullptr)) {
         // We rewrote part of the function; recompute MLI and start again.
         MLI.runOnMachineFunction(MF);
+//MF.dump();
         return Changed = ChangedNow = true;
       }
       return false;
