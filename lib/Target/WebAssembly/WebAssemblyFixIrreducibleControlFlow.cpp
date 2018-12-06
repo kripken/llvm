@@ -278,27 +278,73 @@ errs() << "   tootal " << RewriteSuccs.size() << '\n';
 } else {
 
 // An alternatie approahc
-if (Loop) return false; // we just work at the top level yo
 
 errs() << "we are considering " << MF.getFunction().getName() << '\n';
 if (Loop) errs() << "  a loop of size " << Loop->getBlocks().size() << '\n';
 
-// TODO: iterations.
+// TODO: iterations?
 
-  // Find all the blocks which can return to themselves, and the blocks which
+  // Ignoring natural loops (seeing them monolithically), and in a loop ignoring the header,
+  // we find all the blocks which can return to themselves, and the blocks which
   // cannot. Loopers reachable from the non-loopers are loop entries: if there is
   // 1, it is a natural loop; otherwise, we have irreducible control flow.
 
-  // Compute which blocks each block can reach.
+  std::set<MachineBasicBlock *> Blocks;
+  if (Loop) {
+    for (auto *MBB : Loop->getBlocks()) {
+      Blocks.insert(MBB);
+    }
+  } else {
+    for (auto &MBB : MF) {
+      Blocks.insert(&MBB);
+    }
+  }
+errs() << "mo1\n";
+#if 0
+  auto Relevant = [&](MachineBasicBlock *MBB) {
+    return MLI.getLoopFor(Succ) == Loop;
+  };
+#endif
+
+  // Get a canonical block to represent a block or a loop: the block,
+  // or if in a loop, the loop header.
+  // XXX stop looking past loop exits..?
+  auto Canonicalize = [&](MachineBasicBlock *MBB) {
+    MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
+    if (InnerLoop == Loop) {
+      return MBB;
+    } else if (InnerLoop) {
+      return InnerLoop->getHeader();
+    } else {
+      return &*MF.begin();
+    }
+  };
+
+  // Compute which (canonicalized) blocks each block can reach.
   std::unordered_map<MachineBasicBlock *, std::unordered_set<MachineBasicBlock *>> Reachable;
   std::set<MachineBasicBlock *> WorkList;
-  for (auto &MBB : MF) {
-    for (auto *Succ : MBB.successors()) {
-      Reachable[&MBB].insert(Succ);
-//errs() << "  pre-add " << MBB.getName() << " => " << Succ->getName() << '\n';
+  for (auto *MBB : Blocks) {
+    MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
+    if (InnerLoop == Loop) {
+      WorkList.insert(MBB);
+      for (auto *Succ : MBB->successors()) {
+        Reachable[MBB].insert(Canonicalize(Succ));
+      }
+    } else if (InnerLoop) {
+      if (MBB != InnerLoop->getHeader()) {
+        continue;
+      }
+      WorkList.insert(MBB);
+      SmallVector<MachineBasicBlock *, 2> ExitBlocks;
+      InnerLoop->getExitBlocks(ExitBlocks);
+      for (auto *Succ : ExitBlocks) {
+        Reachable[MBB].insert(Canonicalize(Succ));
+      }
+    } else {
+      // We are in a loop, and this block is outside of it - ignore XXX ?
     }
-    WorkList.insert(&MBB);
   }
+errs() << "mo2\n";
   while (!WorkList.empty()) {
     MachineBasicBlock* MBB = *WorkList.begin();
 //errs() << "at " << MBB->getName() << '\n';
@@ -314,27 +360,30 @@ if (Loop) errs() << "  a loop of size " << Loop->getBlocks().size() << '\n';
       }
     }
     if (Inserted) {
+      // This is correct for both a block and a block representing a loop, as
+      // the loop is natural and so the predecessors are all predecessors of
+      // the loop header, which is the block we have here.
       for (auto *Pred : MBB->predecessors()) {
         WorkList.insert(Pred);
-//errs() << "  will work on " << Pred->getName() << '\n';
       }
     }
   }
+errs() << "mo3\n";
 
   std::unordered_set<MachineBasicBlock *> Loopers;
-  for (auto &MBB : MF) {
-    if (Reachable[&MBB].count(&MBB)) {
-      Loopers.insert(&MBB);
+  for (auto MBB : Blocks) {
+    if (Reachable[MBB].count(MBB)) {
+      Loopers.insert(MBB);
     }
   }
 errs() << "loopers: " << Loopers.size() << '\n';
 
   SmallPtrSet<MachineBasicBlock *, 1> Entries;
-  for (auto &MBB : MF) {
-    if (Loopers.count(&MBB)) {
-      for (auto *Pred : MBB.predecessors()) {
+  for (auto MBB : Blocks) {
+    if (Loopers.count(MBB)) {
+      for (auto *Pred : MBB->predecessors()) {
         if (!Loopers.count(Pred)) {
-          Entries.insert(&MBB);
+          Entries.insert(MBB);
           break;
         }
       }
@@ -507,6 +556,7 @@ bool WebAssemblyFixIrreducibleControlFlow::runOnMachineFunction(
   bool Changed = false;
   auto &MLI = getAnalysis<MachineLoopInfo>();
 
+if (getenv("DAN")) {
   // Visit the function body, which is identified as a null loop.
   Changed |= VisitLoop(MF, MLI, nullptr);
 
@@ -517,6 +567,34 @@ bool WebAssemblyFixIrreducibleControlFlow::runOnMachineFunction(
     Worklist.append(CurLoop->begin(), CurLoop->end());
     Changed |= VisitLoop(MF, MLI, CurLoop);
   }
+} else {
+
+  bool ChangedNow = true;
+
+  while (ChangedNow) {
+    ChangedNow = false;
+
+    auto DoVisitLoop = [&](MachineFunction&MF, MachineLoopInfo& MLI, MachineLoop *Loop) {
+      if (VisitLoop(MF, MLI, nullptr)) {
+        // We rewrote part of the function; recompute MLI and start again.
+        MLI.runOnMachineFunction(MF);
+        return Changed = ChangedNow = true;
+      }
+      return false;
+    };
+
+    // Visit the function body, which is identified as a null loop.
+    if (DoVisitLoop(MF, MLI, nullptr)) continue;
+
+    // Visit all the loops.
+    SmallVector<MachineLoop *, 8> Worklist(MLI.begin(), MLI.end());
+    while (!Worklist.empty()) {
+      MachineLoop *CurLoop = Worklist.pop_back_val();
+      Worklist.append(CurLoop->begin(), CurLoop->end());
+      if (DoVisitLoop(MF, MLI, CurLoop)) break;
+    }
+  }
+}
 
   // If we made any changes, completely recompute everything.
   if (LLVM_UNLIKELY(Changed)) {
