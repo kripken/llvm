@@ -95,6 +95,10 @@ bb19:
 
 ; A simple loop 2 blocks that are both entries.
 
+; CHECK-LABEL: test2:
+; CHECK: br_if
+; CHECK: i32.const $[[REG:[^,]+]]=
+; CHECK: br_table  $[[REG]],
 define internal i32 @test2(i32) noinline {
 entry:
   br label %A0
@@ -117,7 +121,7 @@ A2:
 
 ; An interesting loop with inner loop and if-else structure too.
 
-define hidden void @tricky(i32 %ws) #0 {
+define hidden void @test3(i32 %ws) #0 {
 entry:
   %ws.addr = alloca i32, align 4
   store volatile i32 %ws, i32* %ws.addr, align 4
