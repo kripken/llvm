@@ -121,6 +121,8 @@ A2:
 
 ; An interesting loop with inner loop and if-else structure too.
 
+; CHECK-LABEL: test3:
+; CHECK: br_if
 define hidden void @test3(i32 %ws) #0 {
 entry:
   %ws.addr = alloca i32, align 4
