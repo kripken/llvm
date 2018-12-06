@@ -279,7 +279,7 @@ errs() << "   tootal " << RewriteSuccs.size() << '\n';
 
 // An alternatie approahc
 
-errs() << "we are considering " << MF.getFunction().getName() << '\n';
+errs() << "we are considering " << MF.getFunction().getName() << " : " << Loop << '\n';
 if (Loop) errs() << "  a loop of size " << Loop->getBlocks().size() << '\n';
 
 // TODO: iterations?
@@ -326,7 +326,9 @@ if (Loop) errs() << "  a loop of size " << Loop->getBlocks().size() << '\n';
 
   auto MaybeInsert = [&](std::unordered_set<MachineBasicBlock *>& Set, MachineBasicBlock *MBB) {
     if (!MBB) return;
-    Set.insert(Canonicalize(MBB));
+    MBB = Canonicalize(MBB);
+    if (!MBB) return;
+    Set.insert(MBB);
   };
 
   // Compute which (canonicalized) blocks each block can reach.
@@ -590,31 +592,25 @@ if (getenv("DAN")) {
   }
 } else {
 
-  bool ChangedNow = true;
-
-  while (ChangedNow) {
-    ChangedNow = false;
-
-    auto DoVisitLoop = [&](MachineFunction&MF, MachineLoopInfo& MLI, MachineLoop *Loop) {
-      if (VisitLoop(MF, MLI, nullptr)) {
-        // We rewrote part of the function; recompute MLI and start again.
-        MLI.runOnMachineFunction(MF);
+  auto DoVisitLoop = [&](MachineFunction&MF, MachineLoopInfo& MLI, MachineLoop *Loop) {
+    if (VisitLoop(MF, MLI, Loop)) {
+      // We rewrote part of the function; recompute MLI and start again.
+      MLI.runOnMachineFunction(MF);
 //MF.dump();
-        return Changed = ChangedNow = true;
-      }
-      return false;
-    };
-
-    // Visit the function body, which is identified as a null loop.
-    if (DoVisitLoop(MF, MLI, nullptr)) continue;
-
-    // Visit all the loops.
-    SmallVector<MachineLoop *, 8> Worklist(MLI.begin(), MLI.end());
-    while (!Worklist.empty()) {
-      MachineLoop *CurLoop = Worklist.pop_back_val();
-      Worklist.append(CurLoop->begin(), CurLoop->end());
-      if (DoVisitLoop(MF, MLI, CurLoop)) break;
+      Changed = true;
     }
+  };
+
+  // Visit the function body, which is identified as a null loop.
+  DoVisitLoop(MF, MLI, nullptr);
+
+  // Visit all the loops.
+  // XXX we need to loop here, as each operation we perform creates a new natural function..?
+  SmallVector<MachineLoop *, 8> Worklist(MLI.begin(), MLI.end());
+  while (!Worklist.empty()) {
+    MachineLoop *CurLoop = Worklist.pop_back_val();
+    Worklist.append(CurLoop->begin(), CurLoop->end());
+    DoVisitLoop(MF, MLI, CurLoop);
   }
 }
 
