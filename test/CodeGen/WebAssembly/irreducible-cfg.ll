@@ -9,7 +9,7 @@ target triple = "wasm32-unknown-unknown"
 
 ; CHECK-LABEL: test0:
 ; CHECK: f64.load
-; CHECK: i32.const $[[REG:[^,]+]]=, 0{{$}}
+; CHECK: i32.const $[[REG:[^,]+]]=
 ; CHECK: br_table  $[[REG]],
 define void @test0(double* %arg, i32 %arg1, i32 %arg2, i32 %arg3) {
 bb:
@@ -50,7 +50,7 @@ bb19:
 
 ; CHECK-LABEL: test1:
 ; CHECK: f64.load
-; CHECK: i32.const $[[REG:[^,]+]]=, 0{{$}}
+; CHECK: i32.const $[[REG:[^,]+]]=
 ; CHECK: br_table  $[[REG]],
 define void @test1(double* %arg, i32 %arg1, i32 %arg2, i32 %arg3) {
 bb:
