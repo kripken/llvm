@@ -390,7 +390,12 @@ if (!InnerLoop) {
     }
     // Finally, add the item to the work list, if we added anything.
     if (Added) {
-      WorkList.insert(MBB);
+      // This is correct for both a block and a block representing a loop, as
+      // the loop is natural and so the predecessors are all predecessors of
+      // the loop header, which is the block we have here.
+      for (auto *Pred : MBB->predecessors()) {
+        WorkList.insert(CanonicalizeSuccessor(Pred));
+      }
     }
   }
 //errs() << "Relevant blocks for reachability: " << Reachable.size() << '\n';
