@@ -347,12 +347,12 @@ for (auto *MBB : LoopBlocks) {
 
   auto MaybeInsert = [&](std::unordered_set<MachineBasicBlock *>& Set, MachineBasicBlock *MBB) {
 ////errs() << "  1mayhb " << MBB << '\n';
-    if (!MBB) return;
+    if (!MBB) return false;
     MBB = CanonicalizeSuccessor(MBB);
 ////errs() << "  2mayhb " << MBB << '\n';
-    if (!MBB) return;
+    if (!MBB) return false;
 ////errs() << "    actual addaddition of bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
-    Set.insert(MBB);
+    return Set.insert(MBB).second;
   };
 
   // Compute which (canonicalized) blocks each block can reach.
@@ -361,12 +361,13 @@ for (auto *MBB : LoopBlocks) {
   for (auto *MBB : LoopBlocks) {
 ////errs() << "initial addition of bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
 
+    bool Added = false;
+
     MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
     if (InnerLoop == Loop) {
-      WorkList.insert(MBB);
       for (auto *Succ : MBB->successors()) {
 ////errs() << "  maybe add " << Succ->getNumber() << '\n';
-        MaybeInsert(Reachable[MBB], Succ);
+        Added |= MaybeInsert(Reachable[MBB], Succ);
       }
     } else {
       // It can't be in an outer loop - we loop on LoopBlocks - and so it must be
@@ -379,14 +380,17 @@ if (!InnerLoop) {
       if (MBB != InnerLoop->getHeader()) {
         continue;
       }
-      WorkList.insert(MBB);
       // The successors are those of the loop.
       SmallVector<MachineBasicBlock *, 2> ExitBlocks;
       InnerLoop->getExitBlocks(ExitBlocks);
       for (auto *Succ : ExitBlocks) {
 ////errs() << "  maybe inner add " << Succ->getNumber() << '\n';
-        MaybeInsert(Reachable[MBB], Succ);
+        Added |= MaybeInsert(Reachable[MBB], Succ);
       }
+    }
+    // Finally, add the item to the work list, if we added anything.
+    if (Added) {
+      WorkList.insert(MBB);
     }
   }
 //errs() << "Relevant blocks for reachability: " << Reachable.size() << '\n';
