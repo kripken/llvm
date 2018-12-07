@@ -143,7 +143,7 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
 
 if (getenv("DAN")) {
   SetVector<MachineBasicBlock *> RewriteSuccs;
-//errs() << "dan is considering " << MF.getFunction().getName() << '\n';
+errs() << "dan is considering " << MF.getFunction().getName() << '\n';
 
   // DFS through Loop's body, looking for irreducible control flow. Loop is
   // natural, and we stay in its body, and we treat any nested loops
@@ -185,7 +185,7 @@ if (getenv("DAN")) {
   if (LLVM_LIKELY(RewriteSuccs.empty()))
     return false;
 
-//errs() << "irreduyciuble! " << MF.getFunction().getName() << " with " << RewriteSuccs.size() << '\n';
+errs() << "irreduyciuble! " << MF.getFunction().getName() << " with " << RewriteSuccs.size() << '\n';
 
   LLVM_DEBUG(dbgs() << "Irreducible control flow detected!\n");
 
@@ -233,7 +233,7 @@ if (getenv("DAN")) {
       if (Succ != Header && (!Loop || Loop->contains(Succ)))
         SuccWorklist.push_back(Succ);
   }
-//errs() << "   tootal " << RewriteSuccs.size() << '\n';
+errs() << "   tootal " << RewriteSuccs.size() << '\n';
   // Rewrite the problematic successors for every block in RewriteSuccs.
   // For simplicity, we just introduce a new block for every edge we need to
   // rewrite. Fancier things are possible.
@@ -279,10 +279,7 @@ if (getenv("DAN")) {
 
 // An alternatie approahc
 
-//errs() << "we are considering " << MF.getFunction().getName() << " : " << Loop << '\n';
-if (Loop) {
-//errs() << "  a loop of size " << Loop->getBlocks().size() << " with header " << Loop->getHeader()->getName() << '\n';
-}
+errs() << "we are considering " << MF.getFunction().getName() << " : " << Loop << '\n';
 
 // TODO: iterations?
 
@@ -301,6 +298,20 @@ if (Loop) {
       LoopBlocks.insert(&MBB);
     }
   }
+
+errs() << "  total blocks in this scope: " << LoopBlocks.size() << " with header bb." << Header->getNumber() << "." << Header->getName() << '\n';
+for (auto *MBB : LoopBlocks) {
+  errs() << MBB->getNumber() << ' ';
+}
+errs() << '\n';
+errs() << "  relevant blocks (not in an inner loop scope; note this does not include loops in our scope, the header of which is relevant):\n";
+for (auto *MBB : LoopBlocks) {
+  if (MLI.getLoopFor(MBB) == Loop) {
+    errs() << MBB->getNumber() << ' ';
+  }
+}
+errs() << '\n';
+
 #if 0
   auto Relevant = [&](MachineBasicBlock *MBB) {
     return MLI.getLoopFor(Succ) == Loop;
@@ -311,10 +322,6 @@ if (Loop) {
   // or if in a loop, the loop header.
   // XXX stop looking past loop exits..?
   auto Canonicalize = [&](MachineBasicBlock *MBB) -> MachineBasicBlock * {
-    if (Loop && MBB == Loop->getHeader()) {
-      // Ignore branches back to the loop's natural header.
-      return nullptr;
-    }
     MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
     if (InnerLoop == Loop) {
       return MBB;
@@ -330,10 +337,21 @@ if (Loop) {
     }
   };
 
+  auto CanonicalizeSuccessor = [&](MachineBasicBlock *MBB) -> MachineBasicBlock * {
+    if (Loop && MBB == Loop->getHeader()) {
+      // Ignore branches going to the loop's natural header.
+      return nullptr;
+    }
+    return Canonicalize(MBB);
+  };
+
   auto MaybeInsert = [&](std::unordered_set<MachineBasicBlock *>& Set, MachineBasicBlock *MBB) {
+//errs() << "  1mayhb " << MBB << '\n';
     if (!MBB) return;
-    MBB = Canonicalize(MBB);
+    MBB = CanonicalizeSuccessor(MBB);
+//errs() << "  2mayhb " << MBB << '\n';
     if (!MBB) return;
+//errs() << "    actual addaddition of bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
     Set.insert(MBB);
   };
 
@@ -341,17 +359,20 @@ if (Loop) {
   std::unordered_map<MachineBasicBlock *, std::unordered_set<MachineBasicBlock *>> Reachable;
   std::set<MachineBasicBlock *> WorkList;
   for (auto *MBB : LoopBlocks) {
+//errs() << "initial addition of bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
+
     MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
     if (InnerLoop == Loop) {
       WorkList.insert(MBB);
       for (auto *Succ : MBB->successors()) {
+//errs() << "  maybe add " << Succ->getNumber() << '\n';
         MaybeInsert(Reachable[MBB], Succ);
       }
     } else {
       // It can't be in an outer loop - we loop on LoopBlocks - and so it must be
       // an inner loop.
 if (!InnerLoop) {
-  //errs() << "very bad " << Loop << " : " << InnerLoop << " : bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
+  errs() << "very bad " << Loop << " : " << InnerLoop << " : bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
 }
       assert(InnerLoop);
       // We canonicalize it to the header of that loop, so ignore if it isn't that.
@@ -363,14 +384,15 @@ if (!InnerLoop) {
       SmallVector<MachineBasicBlock *, 2> ExitBlocks;
       InnerLoop->getExitBlocks(ExitBlocks);
       for (auto *Succ : ExitBlocks) {
+//errs() << "  maybe inner add " << Succ->getNumber() << '\n';
         MaybeInsert(Reachable[MBB], Succ);
       }
     }
   }
-//errs() << "Relevant blocks for reachability: " << Reachable.size() << '\n';
+errs() << "Relevant blocks for reachability: " << Reachable.size() << '\n';
   while (!WorkList.empty()) {
     MachineBasicBlock* MBB = *WorkList.begin();
-////errs() << "at " << MBB->getName() << '\n';
+//errs() << "at " << MBB->getName() << '\n';
     WorkList.erase(WorkList.begin());
     if (!MBB) continue;
     SmallSet<MachineBasicBlock *, 4> ToAdd;
@@ -381,7 +403,7 @@ if (!InnerLoop) {
         assert(Succ2);
         if (!Reachable[MBB].count(Succ2)) {
           ToAdd.insert(Succ2);
-////errs() << "  add " << MBB->getName() << " => " << Succ2->getName() << '\n';
+//errs() << "  add " << MBB->getName() << " => " << Succ2->getName() << '\n';
         }
       }
     }
@@ -393,15 +415,15 @@ if (!InnerLoop) {
       // the loop is natural and so the predecessors are all predecessors of
       // the loop header, which is the block we have here.
       for (auto *Pred : MBB->predecessors()) {
-        WorkList.insert(Canonicalize(Pred));
+        WorkList.insert(CanonicalizeSuccessor(Pred));
       }
     }
   }
-////errs() << "Computed reachabilities\n";
+errs() << "Computed reachabilities\n";
 for (auto& pair : Reachable) {
-////errs() << "bb." << pair.first->getNumber() << "." << pair.first->getName() << '\n';
+errs() << "bb." << pair.first->getNumber() << "." << pair.first->getName() << '\n';
   for (auto* S : pair.second) {
-////errs() << "  => bb." << S->getNumber() << "." << S->getName() << '\n';
+errs() << "  => bb." << S->getNumber() << "." << S->getName() << '\n';
   }
 }
 
@@ -412,25 +434,21 @@ for (auto& pair : Reachable) {
     }
   }
 
-//errs() << "loopers: " << Loopers.size() << '\n';
+errs() << "loopers: " << Loopers.size() << '\n';
 
 // The header cannot be a looper. At the toplevel, LLVM does not allow the entry to be
 // in a loop, and in a natural loop we should ignore the header.
 assert(Loopers.count(Header) == 0);
 
-assert(Loopers.size() < 1000);
-
   SmallPtrSet<MachineBasicBlock *, 4> Entries;
   SmallVector<MachineBasicBlock *, 4> SortedEntries;
   for (auto *Looper : Loopers) {
-    if (Loopers.count(Looper)) {
-      for (auto *Pred : Looper->predecessors()) {
-        Pred = Canonicalize(Pred);
-        if (Pred && !Loopers.count(Pred)) {
-          Entries.insert(Looper);
-          SortedEntries.push_back(Looper);
-          break;
-        }
+    for (auto *Pred : Looper->predecessors()) {
+      Pred = Canonicalize(Pred);
+      if (Pred && !Loopers.count(Pred)) {
+        Entries.insert(Looper);
+        SortedEntries.push_back(Looper);
+        break;
       }
     }
   }
@@ -442,12 +460,12 @@ assert(Loopers.size() < 1000);
     assert(ANum != BNum);
     return ANum < BNum;
   });
-//errs() << "entries: " << Entries.size() << '\n';
+errs() << "entries: " << Entries.size() << '\n';
 
   if (Entries.size() <= 1) return false;
 
 for (auto* MBB : SortedEntries) {
-//errs() << " bad: bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
+errs() << " bad: bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
 }
 
 // Create a dispatch block which will
@@ -494,7 +512,7 @@ for (auto *MBB : SortedEntries) {
     }
   }
 }
-//errs() << "total preds to bads: " << AllPreds.size() << '\n';
+errs() << "total preds to bads: " << AllPreds.size() << '\n';
 
 for (MachineBasicBlock *MBB : AllPreds) {
   DenseMap<MachineBasicBlock *, MachineBasicBlock *> Map;
@@ -586,7 +604,7 @@ if (getenv("DAN")) {
 
     // Visit all the loops.
     SmallVector<MachineLoop *, 8> Worklist(MLI.begin(), MLI.end());
-//errs() << "Loops: " << Worklist.size() << '\n';
+errs() << "Loops: " << Worklist.size() << '\n';
     while (!Worklist.empty()) {
       MachineLoop *Loop = Worklist.pop_back_val();
       Worklist.append(Loop->begin(), Loop->end());
