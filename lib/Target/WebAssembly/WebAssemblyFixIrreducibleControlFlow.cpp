@@ -504,7 +504,7 @@ for (auto *MBB : SortedEntries) {
 // bad blocks. For simplicity, we just introduce a new block for every
 // edge we need to rewrite. (Fancier things are possible.)
 
-DenseSet<MachineBasicBlock *> AllPreds;
+SetVector<MachineBasicBlock *> AllPreds;
 for (auto *MBB : SortedEntries) {
   for (auto *Pred : MBB->predecessors()) {
     if (Pred != Dispatch) {
