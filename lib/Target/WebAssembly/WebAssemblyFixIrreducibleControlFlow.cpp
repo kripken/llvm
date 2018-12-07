@@ -363,6 +363,15 @@ for (auto *MBB : LoopBlocks) {
   typedef std::pair<MachineBasicBlock *, MachineBasicBlock *> BlockPair;
   std::set<BlockPair> WorkList;
 
+  auto AddPredecessors = [&](MachineBasicBlock *MBB) {
+    // This is correct for both a block and a block representing a loop, as
+    // the loop is natural and so the predecessors are all predecessors of
+    // the loop header, which is the block we have here.
+    for (auto *Pred : MBB->predecessors()) {
+      WorkList.insert(BlockPair(CanonicalizeSuccessor(Pred), MBB));
+    }
+  };
+
   for (auto *MBB : LoopBlocks) {
 ////errs() << "initial addition of bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
 
@@ -395,12 +404,7 @@ if (!InnerLoop) {
     }
     // Finally, add the item to the work list, if we added anything.
     if (Added) {
-      // This is correct for both a block and a block representing a loop, as
-      // the loop is natural and so the predecessors are all predecessors of
-      // the loop header, which is the block we have here.
-      for (auto *Pred : MBB->predecessors()) {
-        WorkList.insert(BlockPair(CanonicalizeSuccessor(Pred), MBB));
-      }
+      AddPredecessors(MBB);
     }
   }
 //errs() << "Relevant blocks for reachability: " << Reachable.size() << '\n';
@@ -426,12 +430,7 @@ if (!InnerLoop) {
       for (auto *Add : ToAdd) {
         Reachable[MBB].insert(Add);
       }
-      // This is correct for both a block and a block representing a loop, as
-      // the loop is natural and so the predecessors are all predecessors of
-      // the loop header, which is the block we have here.
-      for (auto *Pred : MBB->predecessors()) {
-        WorkList.insert(BlockPair(CanonicalizeSuccessor(Pred), MBB));
-      }
+      AddPredecessors(MBB);
     }
   }
 //errs() << "Computed reachabilities\n";
