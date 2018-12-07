@@ -357,8 +357,11 @@ for (auto *MBB : LoopBlocks) {
 
   // Compute which (canonicalized) blocks each block can reach.
   std::unordered_map<MachineBasicBlock *, std::unordered_set<MachineBasicBlock *>> Reachable;
-  // The worklist contains items which have a successor with new things.
-  std::set<MachineBasicBlock *> WorkList;
+
+  // The worklist contains items which have a successor with new things, each pair is
+  //  (item to work on, the successor with new things)
+  typedef std::pair<MachineBasicBlock *, MachineBasicBlock *> BlockPair;
+  std::set<BlockPair> WorkList;
 
   for (auto *MBB : LoopBlocks) {
 ////errs() << "initial addition of bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
@@ -396,15 +399,17 @@ if (!InnerLoop) {
       // the loop is natural and so the predecessors are all predecessors of
       // the loop header, which is the block we have here.
       for (auto *Pred : MBB->predecessors()) {
-        WorkList.insert(CanonicalizeSuccessor(Pred));
+        WorkList.insert(BlockPair(CanonicalizeSuccessor(Pred), MBB));
       }
     }
   }
 //errs() << "Relevant blocks for reachability: " << Reachable.size() << '\n';
   while (!WorkList.empty()) {
-    MachineBasicBlock* MBB = *WorkList.begin();
+    BlockPair Pair = *WorkList.begin();
 ////errs() << "at " << MBB->getName() << '\n';
     WorkList.erase(WorkList.begin());
+    auto *MBB = Pair.first;
+    auto *Changed = Pair.second;
     if (!MBB) continue;
     SmallSet<MachineBasicBlock *, 4> ToAdd;
     for (auto *Succ : Reachable[MBB]) {
@@ -426,7 +431,7 @@ if (!InnerLoop) {
       // the loop is natural and so the predecessors are all predecessors of
       // the loop header, which is the block we have here.
       for (auto *Pred : MBB->predecessors()) {
-        WorkList.insert(CanonicalizeSuccessor(Pred));
+        WorkList.insert(BlockPair(CanonicalizeSuccessor(Pred), MBB));
       }
     }
   }
