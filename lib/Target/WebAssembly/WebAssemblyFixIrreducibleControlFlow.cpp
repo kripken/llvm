@@ -368,7 +368,14 @@ for (auto *MBB : LoopBlocks) {
     // the loop is natural and so the predecessors are all predecessors of
     // the loop header, which is the block we have here.
     for (auto *Pred : MBB->predecessors()) {
-      WorkList.insert(BlockPair(CanonicalizeSuccessor(Pred), MBB));
+      // Canonicalize, make sure it's relevant, and check it's not the
+      // same block (an update to the block itself doesn't help compute
+      // that same block).
+      Pred = CanonicalizeSuccessor(Pred);
+      if (Pred && Pred != MBB) {
+        assert(MBB == Canonicalize(MBB));
+        WorkList.insert(BlockPair(Pred, MBB));
+      }
     }
   };
 
@@ -413,8 +420,8 @@ if (!InnerLoop) {
     WorkList.erase(WorkList.begin());
     auto *MBB = Pair.first;
     auto *Succ = Pair.second;
-    if (!MBB) continue;
-    if (Succ == MBB) continue;
+    assert(MBB);
+    assert(Succ != MBB);
     if (!Reachable[MBB].count(Succ)) continue;
 //errs() << "at " << MBB->getNumber() << " : " << SuccMaybe->getNumber() << '\n';
     SmallSet<MachineBasicBlock *, 4> ToAdd;
