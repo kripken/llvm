@@ -381,6 +381,8 @@ errs() << "    actual addaddition of bb." << MBB->getNumber() << "." << MBB->get
     }
   };
 
+  auto LoopDepth = Loop ? Loop->getLoopDepth() : 0;
+
   for (auto *MBB : LoopBlocks) {
     bool Added = false;
     MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
@@ -399,6 +401,10 @@ if (!InnerLoop) {
   //errs() << "very bad " << Loop << " : " << InnerLoop << " : bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
 }
       assert(InnerLoop);
+      // We just care about immediate inner loops, not children of them.
+      if (InnerLoop->getLoopDepth() != LoopDepth + 1) {
+        continue;
+      }
       // We canonicalize it to the header of that loop, so ignore if it isn't that.
       if (MBB != InnerLoop->getHeader()) {
 errs() << "not header\n";
