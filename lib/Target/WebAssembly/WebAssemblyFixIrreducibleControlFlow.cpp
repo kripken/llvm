@@ -299,9 +299,9 @@ if (getenv("DAN")) {
     }
   }
 
-//errs() << "  total blocks in this scope: " << LoopBlocks.size() << " with header bb." << Header->getNumber() << "." << Header->getName() << '\n';
+errs() << "  total blocks in this scope: " << LoopBlocks.size() << " with header bb." << Header->getNumber() << "." << Header->getName() << '\n';
 for (auto *MBB : LoopBlocks) {
-  //errs() << MBB->getNumber() << ' ';
+errs() << MBB->getNumber() << " (in loop " << MLI.getLoopFor(MBB) << ")\n";
 }
 //errs() << '\n';
 //errs() << "  relevant blocks (not in an inner loop scope; note this does not include loops in our scope, the header of which is relevant):\n";
@@ -351,7 +351,7 @@ for (auto *MBB : LoopBlocks) {
     MBB = CanonicalizeSuccessor(MBB);
 ////errs() << "  2mayhb " << MBB << '\n';
     if (!MBB) return false;
-////errs() << "    actual addaddition of bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
+errs() << "    actual addaddition of bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
     return Set.insert(MBB).second;
   };
 
@@ -364,6 +364,9 @@ for (auto *MBB : LoopBlocks) {
   std::set<BlockPair> WorkList;
 
   auto AddPredecessors = [&](MachineBasicBlock *MBB) {
+    assert(MBB == Canonicalize(MBB));
+    // If we don't care about MBB as a successor, there's nothing to do.
+    if (!CanonicalizeSuccessor(MBB)) return;
     // This is correct for both a block and a block representing a loop, as
     // the loop is natural and so the predecessors are all predecessors of
     // the loop header, which is the block we have here.
@@ -371,23 +374,22 @@ for (auto *MBB : LoopBlocks) {
       // Canonicalize, make sure it's relevant, and check it's not the
       // same block (an update to the block itself doesn't help compute
       // that same block).
-      Pred = CanonicalizeSuccessor(Pred);
+      Pred = Canonicalize(Pred);
       if (Pred && Pred != MBB) {
-        assert(MBB == Canonicalize(MBB));
         WorkList.insert(BlockPair(Pred, MBB));
       }
     }
   };
 
   for (auto *MBB : LoopBlocks) {
-////errs() << "initial addition of bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
-
     bool Added = false;
-
     MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
+
+errs() << "initial addition of bb." << MBB->getNumber() << " in inner " << InnerLoop << " : " << Loop << '\n';
+
     if (InnerLoop == Loop) {
       for (auto *Succ : MBB->successors()) {
-////errs() << "  maybe add " << Succ->getNumber() << '\n';
+errs() << "  maybe add " << Succ->getNumber() << '\n';
         Added |= MaybeInsert(Reachable[MBB], Succ);
       }
     } else {
@@ -399,13 +401,15 @@ if (!InnerLoop) {
       assert(InnerLoop);
       // We canonicalize it to the header of that loop, so ignore if it isn't that.
       if (MBB != InnerLoop->getHeader()) {
+errs() << "not header\n";
         continue;
       }
       // The successors are those of the loop.
       SmallVector<MachineBasicBlock *, 2> ExitBlocks;
       InnerLoop->getExitBlocks(ExitBlocks);
+errs() << ExitBlocks.size() << " exits\n";
       for (auto *Succ : ExitBlocks) {
-////errs() << "  maybe inner add " << Succ->getNumber() << '\n';
+errs() << "  maybe inner add " << Succ->getNumber() << '\n';
         Added |= MaybeInsert(Reachable[MBB], Succ);
       }
     }
@@ -421,9 +425,10 @@ if (!InnerLoop) {
     auto *MBB = Pair.first;
     auto *Succ = Pair.second;
     assert(MBB);
+errs() << "at " << MBB->getNumber() << " : " << Succ->getNumber() << '\n';
     assert(Succ != MBB);
-    if (!Reachable[MBB].count(Succ)) continue;
-//errs() << "at " << MBB->getNumber() << " : " << SuccMaybe->getNumber() << '\n';
+if (!Reachable[MBB].count(Succ)) continue;
+assert(Reachable[MBB].count(Succ));
     SmallSet<MachineBasicBlock *, 4> ToAdd;
     assert(Succ);
     for (auto *Succ2 : Reachable[Succ]) {
