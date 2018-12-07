@@ -351,52 +351,34 @@ for (auto *MBB : LoopBlocks) {
     return Canonicalize(MBB);
   };
 
-  auto MaybeInsert = [&](std::unordered_set<MachineBasicBlock *>& Set, MachineBasicBlock *MBB) {
-////errs() << "  1mayhb " << MBB << '\n';
-    if (!MBB) return false;
-    MBB = CanonicalizeSuccessor(MBB);
-////errs() << "  2mayhb " << MBB << '\n';
-    if (!MBB) return false;
-//errs() << "    actual addaddition of bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
-    return Set.insert(MBB).second;
-  };
-
   // Compute which (canonicalized) blocks each block can reach.
   std::unordered_map<MachineBasicBlock *, std::unordered_set<MachineBasicBlock *>> Reachable;
 
-  // The worklist contains items which have a successor with new things, each pair is
-  //  (item to work on, the successor with new things)
+  // The worklist contains pairs of recent additions, (a, b), where we just added
+  // a link a => b.
   typedef std::pair<MachineBasicBlock *, MachineBasicBlock *> BlockPair;
-  std::set<BlockPair> WorkList;
+  std::set<BlockPair> WorkList; // FIXME vector
 
-  auto AddPredecessors = [&](MachineBasicBlock *MBB) {
+  auto MaybeInsert = [&](MachineBasicBlock *MBB, MachineBasicBlock *Succ) {
     assert(MBB == Canonicalize(MBB));
-    // If we don't care about MBB as a successor, there's nothing to do.
-    if (!CanonicalizeSuccessor(MBB)) return;
-    // This is correct for both a block and a block representing a loop, as
-    // the loop is natural and so the predecessors are all predecessors of
-    // the loop header, which is the block we have here.
-    for (auto *Pred : MBB->predecessors()) {
-      // Canonicalize, make sure it's relevant, and check it's not the
-      // same block (an update to the block itself doesn't help compute
-      // that same block).
-      Pred = Canonicalize(Pred);
-      if (Pred && Pred != MBB) {
-        WorkList.insert(BlockPair(Pred, MBB));
-      }
+    if (!Succ) return;
+    Succ = CanonicalizeSuccessor(Succ);
+    if (!Succ) return;
+//errs() << "    actual addaddition of bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
+    if (Reachable[MBB].insert(Succ).second) {
+      WorkList.insert(BlockPair(MBB, Succ));
     }
   };
 
   for (auto *MBB : LoopBlocks) {
-    bool Added = false;
     MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
 
 //errs() << "initial addition of bb." << MBB->getNumber() << " in inner " << InnerLoop << " : " << Loop << '\n';
 
     if (InnerLoop == Loop) {
       for (auto *Succ : MBB->successors()) {
-//errs() << "  maybe add " << Succ->getNumber() << '\n';
-        Added |= MaybeInsert(Reachable[MBB], Succ);
+//errs() << "  maybe  add " << Succ->getNumber() << '\n';
+        MaybeInsert(MBB, Succ);
       }
     } else {
       // It can't be in an outer loop - we loop on LoopBlocks - and so it must be
@@ -420,12 +402,8 @@ if (!InnerLoop) {
 //errs() << ExitBlocks.size() << " exits\n";
       for (auto *Succ : ExitBlocks) {
 //errs() << "  maybe inner add " << Succ->getNumber() << '\n';
-        Added |= MaybeInsert(Reachable[MBB], Succ);
+        MaybeInsert(MBB, Succ);
       }
-    }
-    // Finally, add the item to the work list, if we added anything.
-    if (Added) {
-      AddPredecessors(MBB);
     }
   }
 //errs() << "Relevant blocks for reachability: " << Reachable.size() << '\n';
@@ -435,20 +413,26 @@ if (!InnerLoop) {
     auto *MBB = Pair.first;
     auto *Succ = Pair.second;
     assert(MBB);
-//errs() << "at " << MBB->getNumber() << " : " << Succ->getNumber() << '\n';
-    assert(Succ != MBB);
-    assert(Reachable[MBB].count(Succ));
     assert(Succ);
-    bool Added = false;
-    for (auto *Succ2 : Reachable[Succ]) {
-      assert(Succ2);
-      if (Reachable[MBB].insert(Succ2).second) {
-        Added = true;
-//errs() << "  add " << MBB->getNumber() << " => " << Succ->getNumber() << " => " << Succ2->getNumber() << '\n';
+//errs() << "at " << MBB->getNumber() << " : " << Succ->getNumber() << '\n';
+    // We recently added MBB => Succ, and that means we may have enabled
+    // Pred => MBB => Succ.
+    assert(MBB == Canonicalize(MBB));
+    // If we don't care about MBB as a successor, there's nothing to do.
+    if (!CanonicalizeSuccessor(MBB)) continue;
+    // This is correct for both a block and a block representing a loop, as
+    // the loop is natural and so the predecessors are all predecessors of
+    // the loop header, which is the block we have here.
+    for (auto *Pred : MBB->predecessors()) {
+      // Canonicalize, make sure it's relevant, and check it's not the
+      // same block (an update to the block itself doesn't help compute
+      // that same block).
+//errs() << "  pred: " << Pred->getNumber() << "\n";
+      Pred = Canonicalize(Pred);
+      if (Pred && Pred != MBB) {
+//errs() << "   maybe insert: " << Pred->getNumber() << "\n";
+        MaybeInsert(Pred, Succ);
       }
-    }
-    if (Added) {
-      AddPredecessors(MBB);
     }
   }
 //errs() << "Computed reachabilities\n";
