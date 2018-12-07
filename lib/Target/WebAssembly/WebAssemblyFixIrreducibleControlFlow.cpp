@@ -408,20 +408,18 @@ if (!InnerLoop) {
     BlockPair Pair = *WorkList.begin();
     WorkList.erase(WorkList.begin());
     auto *MBB = Pair.first;
-    auto *SuccMaybe = Pair.second;
+    auto *Succ = Pair.second;
     if (!MBB) continue;
+    if (Succ == MBB) continue;
+    if (!Reachable[MBB].count(Succ)) continue;
 //errs() << "at " << MBB->getNumber() << " : " << SuccMaybe->getNumber() << '\n';
     SmallSet<MachineBasicBlock *, 4> ToAdd;
-    for (auto *Succ : Reachable[MBB]) {
-      assert(Succ);
-      if (Succ == MBB) continue;
-      if (Succ != SuccMaybe) continue;
-      for (auto *Succ2 : Reachable[Succ]) {
-        assert(Succ2);
-        if (!Reachable[MBB].count(Succ2)) {
-          ToAdd.insert(Succ2);
+    assert(Succ);
+    for (auto *Succ2 : Reachable[Succ]) {
+      assert(Succ2);
+      if (!Reachable[MBB].count(Succ2)) {
+        ToAdd.insert(Succ2);
 //errs() << "  add " << MBB->getNumber() << " => " << Succ->getNumber() << " => " << Succ2->getNumber() << '\n';
-        }
       }
     }
     if (!ToAdd.empty()) {
