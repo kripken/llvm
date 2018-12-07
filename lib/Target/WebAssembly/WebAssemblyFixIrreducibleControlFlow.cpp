@@ -357,7 +357,9 @@ for (auto *MBB : LoopBlocks) {
 
   // Compute which (canonicalized) blocks each block can reach.
   std::unordered_map<MachineBasicBlock *, std::unordered_set<MachineBasicBlock *>> Reachable;
+  // The worklist contains items which have a successor with new things.
   std::set<MachineBasicBlock *> WorkList;
+
   for (auto *MBB : LoopBlocks) {
 ////errs() << "initial addition of bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
 
