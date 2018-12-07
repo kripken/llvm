@@ -357,7 +357,7 @@ for (auto *MBB : LoopBlocks) {
   // The worklist contains pairs of recent additions, (a, b), where we just added
   // a link a => b.
   typedef std::pair<MachineBasicBlock *, MachineBasicBlock *> BlockPair;
-  std::set<BlockPair> WorkList; // FIXME vector
+  std::vector<BlockPair> WorkList;
 
   auto MaybeInsert = [&](MachineBasicBlock *MBB, MachineBasicBlock *Succ) {
     assert(MBB == Canonicalize(MBB));
@@ -366,7 +366,7 @@ for (auto *MBB : LoopBlocks) {
     if (!Succ) return;
 //errs() << "    actual addaddition of bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
     if (Reachable[MBB].insert(Succ).second) {
-      WorkList.insert(BlockPair(MBB, Succ));
+      WorkList.push_back(BlockPair(MBB, Succ));
     }
   };
 
@@ -408,8 +408,8 @@ if (!InnerLoop) {
   }
 //errs() << "Relevant blocks for reachability: " << Reachable.size() << '\n';
   while (!WorkList.empty()) {
-    BlockPair Pair = *WorkList.begin();
-    WorkList.erase(WorkList.begin());
+    BlockPair Pair = WorkList.back();
+    WorkList.pop_back();
     auto *MBB = Pair.first;
     auto *Succ = Pair.second;
     assert(MBB);
