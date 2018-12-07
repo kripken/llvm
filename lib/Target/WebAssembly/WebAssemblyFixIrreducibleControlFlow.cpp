@@ -437,21 +437,17 @@ if (!InnerLoop) {
     assert(MBB);
 //errs() << "at " << MBB->getNumber() << " : " << Succ->getNumber() << '\n';
     assert(Succ != MBB);
-//if (!Reachable[MBB].count(Succ)) continue;
-assert(Reachable[MBB].count(Succ));
-    SmallSet<MachineBasicBlock *, 4> ToAdd;
+    assert(Reachable[MBB].count(Succ));
     assert(Succ);
+    bool Added = false;
     for (auto *Succ2 : Reachable[Succ]) {
       assert(Succ2);
-      if (!Reachable[MBB].count(Succ2)) {
-        ToAdd.insert(Succ2);
+      if (Reachable[MBB].insert(Succ2).second) {
+        Added = true;
 //errs() << "  add " << MBB->getNumber() << " => " << Succ->getNumber() << " => " << Succ2->getNumber() << '\n';
       }
     }
-    if (!ToAdd.empty()) {
-      for (auto *Add : ToAdd) {
-        Reachable[MBB].insert(Add);
-      }
+    if (Added) {
       AddPredecessors(MBB);
     }
   }
