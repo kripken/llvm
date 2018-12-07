@@ -433,7 +433,7 @@ errs() << "  maybe inner add " << Succ->getNumber() << '\n';
     assert(MBB);
 errs() << "at " << MBB->getNumber() << " : " << Succ->getNumber() << '\n';
     assert(Succ != MBB);
-if (!Reachable[MBB].count(Succ)) continue;
+//if (!Reachable[MBB].count(Succ)) continue;
 assert(Reachable[MBB].count(Succ));
     SmallSet<MachineBasicBlock *, 4> ToAdd;
     assert(Succ);
