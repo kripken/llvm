@@ -334,10 +334,10 @@ for (auto *MBB : LoopBlocks) {
         return nullptr;
       }
       assert(InnerLoop);
-      // We just care about immediate inner loops, not children of them.
-      if (InnerLoop->getLoopDepth() != LoopDepth + 1) {
-        return nullptr;
-      }
+// We just care about immediate inner loops, not children of them.
+//if (InnerLoop->getLoopDepth() != LoopDepth + 1) {
+//  return nullptr;
+//}
       // It's in an inner loop, canonicalize it to the header of that loop.
       return InnerLoop->getHeader();
     }
@@ -364,8 +364,9 @@ for (auto *MBB : LoopBlocks) {
     if (!Succ) return;
     Succ = CanonicalizeSuccessor(Succ);
     if (!Succ) return;
-//errs() << "    actual addaddition of bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
+//errs() << "    Planned addaddition of " << MBB->getNumber() << " => " << Succ->getNumber() << '\n';
     if (Reachable[MBB].insert(Succ).second) {
+//errs() << "      new!\n";
       WorkList.push_back(BlockPair(MBB, Succ));
     }
   };
@@ -373,11 +374,11 @@ for (auto *MBB : LoopBlocks) {
   for (auto *MBB : LoopBlocks) {
     MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
 
-//errs() << "initial addition of bb." << MBB->getNumber() << " in inner " << InnerLoop << " : " << Loop << '\n';
+//errs() << "initial addition of " << MBB->getNumber() << " in inner " << InnerLoop << " : " << Loop << '\n';
 
     if (InnerLoop == Loop) {
       for (auto *Succ : MBB->successors()) {
-//errs() << "  maybe  add " << Succ->getNumber() << '\n';
+//errs() << "  maybe add " << Succ->getNumber() << '\n';
         MaybeInsert(MBB, Succ);
       }
     } else {
@@ -399,7 +400,7 @@ if (!InnerLoop) {
       // The successors are those of the loop.
       SmallVector<MachineBasicBlock *, 2> ExitBlocks;
       InnerLoop->getExitBlocks(ExitBlocks);
-//errs() << ExitBlocks.size() << " exits\n";
+//errs() << "  " << ExitBlocks.size() << " exits\n";
       for (auto *Succ : ExitBlocks) {
 //errs() << "  maybe inner add " << Succ->getNumber() << '\n';
         MaybeInsert(MBB, Succ);
@@ -430,7 +431,7 @@ if (!InnerLoop) {
 //errs() << "  pred: " << Pred->getNumber() << "\n";
       Pred = Canonicalize(Pred);
       if (Pred && Pred != MBB) {
-//errs() << "   maybe insert: " << Pred->getNumber() << "\n";
+//errs() << "   maybe insert: " << Pred->getNumber() << " => " << MBB->getNumber() << " => " << Succ->getNumber() << "\n";
         MaybeInsert(Pred, Succ);
       }
     }
