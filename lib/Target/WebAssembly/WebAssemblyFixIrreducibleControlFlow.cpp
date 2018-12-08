@@ -145,7 +145,8 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
   typedef std::pair<MachineBasicBlock *, MachineBasicBlock *> BlockPair;
   std::vector<BlockPair> WorkList;
 
-  // Potentially insert a new edge.
+  // Potentially insert a new reachable edge, and if so, note it as
+  // further work.
   auto MaybeInsert = [&](MachineBasicBlock *MBB, MachineBasicBlock *Succ) {
     assert(MBB == Canonicalize(MBB));
     assert(Succ);
@@ -156,6 +157,7 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
     }
   };
 
+  // Add all the initial work.
   for (auto *MBB : LoopBlocks) {
     MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
 
@@ -167,12 +169,8 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
       // It can't be in an outer loop - we loop on LoopBlocks - and so it must be
       // an inner loop.
       assert(InnerLoop);
+      // Check if we are the canonical block for this loop.
       if (Canonicalize(MBB) != MBB) {
-        continue;
-      }
-      // We canonicalize it to the header of that loop, so ignore if it isn't that.
-// remove this vvv, redundant now FIXME
-      if (MBB != InnerLoop->getHeader()) {
         continue;
       }
       // The successors are those of the loop.
@@ -184,6 +182,7 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
     }
   }
 
+  // Do work until we are all done.
   while (!WorkList.empty()) {
     BlockPair Pair = WorkList.back();
     WorkList.pop_back();
@@ -191,9 +190,9 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
     auto *Succ = Pair.second;
     assert(MBB);
     assert(Succ);
+    assert(MBB == Canonicalize(MBB));
     // We recently added MBB => Succ, and that means we may have enabled
     // Pred => MBB => Succ.
-    assert(MBB == Canonicalize(MBB));
     // If we don't care about MBB as a successor, there's nothing to do.
     if (!CanonicalizeSuccessor(MBB)) continue;
     // This is correct for both a block and a block representing a loop, as
