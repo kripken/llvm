@@ -377,7 +377,6 @@ static void SortBlocks(MachineFunction &MF, const MachineLoopInfo &MLI,
     } else {
       // Not a loop header. All predecessors should be sorted above.
       for (auto Pred : MBB.predecessors()) {
-if (Pred->getNumber() >= MBB.getNumber()) errs() << MF.getName() << '\n';
         assert(Pred->getNumber() < MBB.getNumber() &&
                "Non-loop-header predecessors should be topologically sorted");
       }
