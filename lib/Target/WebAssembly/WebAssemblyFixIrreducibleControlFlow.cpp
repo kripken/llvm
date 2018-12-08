@@ -194,7 +194,7 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
     auto *Succ = Pair.second;
     assert(MBB);
     assert(Succ);
-    assert(MBB == Canonicalize(MBB));
+    assert(MBB == CanonicalizeSuccessor(MBB));
     // We recently added MBB => Succ, and that means we may have enabled
     // Pred => MBB => Succ. Check all the predecessors. Note that our loop
     // here is correct for both a block and a block representing a loop, as
