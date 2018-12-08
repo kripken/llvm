@@ -81,61 +81,6 @@ FunctionPass *llvm::createWebAssemblyFixIrreducibleControlFlow() {
   return new WebAssemblyFixIrreducibleControlFlow();
 }
 
-namespace {
-
-/// A utility for walking the blocks of a loop, handling a nested inner
-/// loop as a monolithic conceptual block.
-class MetaBlock {
-  MachineBasicBlock *Block;
-  SmallVector<MachineBasicBlock *, 2> Preds;
-  SmallVector<MachineBasicBlock *, 2> Succs;
-
-public:
-  explicit MetaBlock(MachineBasicBlock *MBB)
-      : Block(MBB), Preds(MBB->pred_begin(), MBB->pred_end()),
-        Succs(MBB->succ_begin(), MBB->succ_end()) {}
-
-  explicit MetaBlock(MachineLoop *Loop) : Block(Loop->getHeader()) {
-    Loop->getExitBlocks(Succs);
-    for (MachineBasicBlock *Pred : Block->predecessors())
-      if (!Loop->contains(Pred))
-        Preds.push_back(Pred);
-  }
-
-  MachineBasicBlock *getBlock() const { return Block; }
-
-  const SmallVectorImpl<MachineBasicBlock *> &predecessors() const {
-    return Preds;
-  }
-  const SmallVectorImpl<MachineBasicBlock *> &successors() const {
-    return Succs;
-  }
-
-  bool operator==(const MetaBlock &MBB) { return Block == MBB.Block; }
-  bool operator!=(const MetaBlock &MBB) { return Block != MBB.Block; }
-};
-
-class SuccessorList final : public MetaBlock {
-  size_t Index;
-  size_t Num;
-
-public:
-  explicit SuccessorList(MachineBasicBlock *MBB)
-      : MetaBlock(MBB), Index(0), Num(successors().size()) {}
-
-  explicit SuccessorList(MachineLoop *Loop)
-      : MetaBlock(Loop), Index(0), Num(successors().size()) {}
-
-  bool HasNext() const { return Index != Num; }
-
-  MachineBasicBlock *Next() {
-    assert(HasNext());
-    return successors()[Index++];
-  }
-};
-
-} // end anonymous namespace
-
 bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
                                                      MachineLoopInfo &MLI,
                                                      MachineLoop *Loop) {
