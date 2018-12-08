@@ -17,12 +17,33 @@
 /// it linearizes control flow, turning diamonds into two triangles, which is
 /// both unnecessary and undesirable for WebAssembly.
 ///
-/// TODO: The transformation implemented here handles all irreducible control
-/// flow, without exponential code-size expansion, though it does so by creating
-/// inefficient code in many cases. Ideally, we should add other
-/// transformations, including code-duplicating cases, which can be more
-/// efficient in common cases, and they can fall back to this conservative
-/// implementation as needed.
+/// The big picture: Ignoring natural loops (seeing them monolithically),
+/// we find all the blocks which can return to themselves ("loopers").
+/// Loopers reachable from the non-loopers are loop entries: if there are 2
+/// or more, then we have irreducible control flow. We fix that as follows:
+/// in each block reaching an entry we assign to a "label" helper variable
+/// with an id of the block we wish to reach, and branch to a new block that
+/// dispatches to all the options. That block is then the single entry in
+/// a new natural loop.
+///
+/// This is similar to what the Relooper [1] does, both identify looping
+/// code that requires multiple entries, and resolve it in a similar way.
+/// In Relooper terminology, we implement a Multiple shape in a Loop
+/// shape. Note also that like the Relooper, we implement a "minimal"
+/// intervention: we only use the "label" helper for the blocks we
+/// absolutely must and no others. We also prioritize code size and do not
+/// perform node splitting (i.e. we don't duplicate code in order to resolve
+/// irreducibility).
+///
+/// The difference between this code and the Relooper is that the Relooper also
+/// generates ifs and loops and works in a recursive manner, knowing at each
+/// point what the entries are, and recursively breaking down the problem. Here
+/// we just want to resolve irreducible control flow, and we also want to use
+/// as much LLVM infrastructure as possible. So we use the MachineLoopInfo
+/// to identify natural loops, etc., and we start with the whole CFG and must
+/// identify both the looping code and its entries.
+///
+/// [1] Alon Zakai. 2011. Emscripten: an LLVM-to-JavaScript compiler. In Proceedings of the ACM international conference companion on Object oriented programming systems languages and applications companion (SPLASH '11). ACM, New York, NY, USA, 301-312. DOI=10.1145/2048147.2048224 http://doi.acm.org/10.1145/2048147.2048224
 ///
 //===----------------------------------------------------------------------===//
 
@@ -85,13 +106,6 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
                                                      MachineLoopInfo &MLI,
                                                      MachineLoop *Loop) {
   MachineBasicBlock *Header = Loop ? Loop->getHeader() : &*MF.begin();
-
-  // The big picture: Ignoring natural loops (seeing them monolithically),
-  // and in a loop ignoring the header, we find all the blocks which can
-  // return to themselves ("loopers"), and the blocks which cannot. Loopers
-  // reachable from the non-loopers are loop entries: if there is
-  // 1, it is a natural loop and not a problem; otherwise, we have
-  // irreducible control flow.
 
   // Identify all the blocks in this loop scope.
   std::set<MachineBasicBlock *> LoopBlocks;
