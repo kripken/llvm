@@ -4,6 +4,7 @@ target datalayout = "e-m:e-p:32:32-i64:64-n32:64-S128"
 target triple = "wasm32-unknown-unknown-wasm"
 
 ; Test an interesting pattern of nested irreducibility.
+; Just check we resolve all the irreducibility here (if not we'd crash).
 
 ; CHECK-LABEL: tre_parse:
 
