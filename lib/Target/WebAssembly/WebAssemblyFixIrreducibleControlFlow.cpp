@@ -43,7 +43,11 @@
 /// to identify natural loops, etc., and we start with the whole CFG and must
 /// identify both the looping code and its entries.
 ///
-/// [1] Alon Zakai. 2011. Emscripten: an LLVM-to-JavaScript compiler. In Proceedings of the ACM international conference companion on Object oriented programming systems languages and applications companion (SPLASH '11). ACM, New York, NY, USA, 301-312. DOI=10.1145/2048147.2048224 http://doi.acm.org/10.1145/2048147.2048224
+/// [1] Alon Zakai. 2011. Emscripten: an LLVM-to-JavaScript compiler. In
+/// Proceedings of the ACM international conference companion on Object oriented
+/// programming systems languages and applications companion (SPLASH '11). ACM,
+/// New York, NY, USA, 301-312. DOI=10.1145/2048147.2048224
+/// http://doi.acm.org/10.1145/2048147.2048224
 ///
 //===----------------------------------------------------------------------===//
 
@@ -142,7 +146,8 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
   // to a natural loop top, as when we are in the scope of a loop, we
   // just care about internal irreducibility, and can ignore the loop
   // we are in.
-  auto CanonicalizeSuccessor = [&](MachineBasicBlock *MBB) -> MachineBasicBlock * {
+  auto CanonicalizeSuccessor =
+      [&](MachineBasicBlock *MBB) -> MachineBasicBlock * {
     if (Loop && MBB == Loop->getHeader()) {
       // Ignore branches going to the loop's natural header.
       return nullptr;
@@ -154,8 +159,8 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
   typedef std::unordered_set<MachineBasicBlock *> BlockSet;
   std::unordered_map<MachineBasicBlock *, BlockSet> Reachable;
 
-  // The worklist contains pairs of recent additions, (a, b), where we just added
-  // a link a => b.
+  // The worklist contains pairs of recent additions, (a, b), where we just
+  // added a link a => b.
   typedef std::pair<MachineBasicBlock *, MachineBasicBlock *> BlockPair;
   std::vector<BlockPair> WorkList;
 
@@ -165,7 +170,8 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
     assert(MBB == Canonicalize(MBB));
     assert(Succ);
     Succ = CanonicalizeSuccessor(Succ);
-    if (!Succ) return;
+    if (!Succ)
+      return;
     if (Reachable[MBB].insert(Succ).second) {
       // There may be no work, if we don't care about MBB as a successor,
       // when considering something else => MBB => Succ.
@@ -184,8 +190,8 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
         MaybeInsert(MBB, Succ);
       }
     } else {
-      // It can't be in an outer loop - we loop on LoopBlocks - and so it must be
-      // an inner loop.
+      // It can't be in an outer loop - we loop on LoopBlocks - and so it must
+      // be an inner loop.
       assert(InnerLoop);
       // Check if we are the canonical block for this loop.
       if (Canonicalize(MBB) != MBB) {
@@ -232,8 +238,8 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
       Loopers.insert(MBB);
     }
   }
-  // The header cannot be a looper. At the toplevel, LLVM does not allow the entry to be
-  // in a loop, and in a natural loop we should ignore the header.
+  // The header cannot be a looper. At the toplevel, LLVM does not allow the
+  // entry to be in a loop, and in a natural loop we should ignore the header.
   assert(Loopers.count(Header) == 0);
 
   // Find the entries, loopers reachable from non-loopers.
@@ -251,16 +257,18 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
   }
 
   // Check if we found irreducible control flow.
-  if (Entries.size() <= 1) return false;
+  if (Entries.size() <= 1)
+    return false;
 
   // Sort the entries to ensure a deterministic build.
-  std::sort(SortedEntries.begin(), SortedEntries.end(), [&](const MachineBasicBlock *A, const MachineBasicBlock *B) {
-    auto ANum = A->getNumber();
-    auto BNum = B->getNumber();
-    assert(ANum != -1 && BNum != -1);
-    assert(ANum != BNum);
-    return ANum < BNum;
-  });
+  std::sort(SortedEntries.begin(), SortedEntries.end(),
+            [&](const MachineBasicBlock *A, const MachineBasicBlock *B) {
+              auto ANum = A->getNumber();
+              auto BNum = B->getNumber();
+              assert(ANum != -1 && BNum != -1);
+              assert(ANum != BNum);
+              return ANum < BNum;
+            });
 
   // Create a dispatch block which will contain a jump table to the entries.
   MachineBasicBlock *Dispatch = MF.CreateMachineBasicBlock();
@@ -364,7 +372,8 @@ bool WebAssemblyFixIrreducibleControlFlow::runOnMachineFunction(
   // here.
 
   auto Iteration = [&]() {
-    auto DoVisitLoop = [&](MachineFunction&MF, MachineLoopInfo& MLI, MachineLoop *Loop) {
+    auto DoVisitLoop = [&](MachineFunction &MF, MachineLoopInfo &MLI,
+                           MachineLoop *Loop) {
       if (VisitLoop(MF, MLI, Loop)) {
         // We rewrote part of the function; recompute MLI and start again.
         LLVM_DEBUG(dbgs() << "Recomputing dominators and loops.\n");
@@ -378,20 +387,23 @@ bool WebAssemblyFixIrreducibleControlFlow::runOnMachineFunction(
     };
 
     // Visit the function body, which is identified as a null loop.
-    if (DoVisitLoop(MF, MLI, nullptr)) return true;
+    if (DoVisitLoop(MF, MLI, nullptr))
+      return true;
 
     // Visit all the loops.
     SmallVector<MachineLoop *, 8> Worklist(MLI.begin(), MLI.end());
     while (!Worklist.empty()) {
       MachineLoop *Loop = Worklist.pop_back_val();
       Worklist.append(Loop->begin(), Loop->end());
-      if (DoVisitLoop(MF, MLI, Loop)) return true;
+      if (DoVisitLoop(MF, MLI, Loop))
+        return true;
     }
 
     return false;
   };
 
-  while (Iteration()) {}
+  while (Iteration()) {
+  }
 
   return Changed;
 }
