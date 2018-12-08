@@ -37,7 +37,7 @@
 ///
 /// The difference between this code and the Relooper is that the Relooper also
 /// generates ifs and loops and works in a recursive manner, knowing at each
-/// point what the entries are, and recursively breaking down the problem. Here
+/// point what the entries are, and recursively breaks down the problem. Here
 /// we just want to resolve irreducible control flow, and we also want to use
 /// as much LLVM infrastructure as possible. So we use the MachineLoopInfo
 /// to identify natural loops, etc., and we start with the whole CFG and must
