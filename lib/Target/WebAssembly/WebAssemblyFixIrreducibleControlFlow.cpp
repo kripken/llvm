@@ -125,7 +125,9 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
   };
 
   // For a successor we can additionally ignore it if it's a branch back
-  // to a natural loop top.
+  // to a natural loop top, as when we are in the scope of a loop, we
+  // just care about internal irreducibility, and can ignore the loop
+  // we are in.
   auto CanonicalizeSuccessor = [&](MachineBasicBlock *MBB) -> MachineBasicBlock * {
     if (Loop && MBB == Loop->getHeader()) {
       // Ignore branches going to the loop's natural header.
@@ -135,13 +137,15 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
   };
 
   // Compute which (canonicalized) blocks each block can reach.
-  std::unordered_map<MachineBasicBlock *, std::unordered_set<MachineBasicBlock *>> Reachable;
+  typedef std::unordered_set<MachineBasicBlock *> BlockSet;
+  std::unordered_map<MachineBasicBlock *, BlockSet> Reachable;
 
   // The worklist contains pairs of recent additions, (a, b), where we just added
   // a link a => b.
   typedef std::pair<MachineBasicBlock *, MachineBasicBlock *> BlockPair;
   std::vector<BlockPair> WorkList;
 
+  // Potentially insert a new edge.
   auto MaybeInsert = [&](MachineBasicBlock *MBB, MachineBasicBlock *Succ) {
     assert(MBB == Canonicalize(MBB));
     if (!Succ) return;
