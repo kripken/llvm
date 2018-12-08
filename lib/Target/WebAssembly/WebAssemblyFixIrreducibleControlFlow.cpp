@@ -211,17 +211,18 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
     }
   }
 
+  // It's now trivial to identify the loopers.
   SetVector<MachineBasicBlock *> Loopers;
   for (auto MBB : LoopBlocks) {
     if (Reachable[MBB].count(MBB)) {
       Loopers.insert(MBB);
     }
   }
-
   // The header cannot be a looper. At the toplevel, LLVM does not allow the entry to be
   // in a loop, and in a natural loop we should ignore the header.
   assert(Loopers.count(Header) == 0);
 
+  // Find the entries, loopers reachable from non-loopers.
   SmallPtrSet<MachineBasicBlock *, 4> Entries;
   SmallVector<MachineBasicBlock *, 4> SortedEntries;
   for (auto *Looper : Loopers) {
@@ -235,6 +236,10 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
     }
   }
 
+  // Check if we found irreducible control flow.
+  if (Entries.size() <= 1) return false;
+
+  // Sort the entries to ensure a deterministic build.
   std::sort(SortedEntries.begin(), SortedEntries.end(), [&](const MachineBasicBlock *A, const MachineBasicBlock *B) {
     auto ANum = A->getNumber();
     auto BNum = B->getNumber();
@@ -243,10 +248,7 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
     return ANum < BNum;
   });
 
-  if (Entries.size() <= 1) return false;
-
-  // Create a dispatch block which will
-  // contain a jump table to any block in the problematic set of blocks.
+  // Create a dispatch block which will contain a jump table to the entries.
   MachineBasicBlock *Dispatch = MF.CreateMachineBasicBlock();
   MF.insert(MF.end(), Dispatch);
   MLI.changeLoopFor(Dispatch, Loop);
@@ -267,8 +269,9 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
   DenseMap<MachineBasicBlock *, unsigned> Indices;
   for (auto *MBB : SortedEntries) {
     auto Pair = Indices.insert(std::make_pair(MBB, 0));
-    if (!Pair.second)
+    if (!Pair.second) {
       continue;
+    }
 
     unsigned Index = MIB.getInstr()->getNumExplicitOperands() - 1;
     Pair.first->second = Index;
