@@ -148,7 +148,7 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
   // Potentially insert a new edge.
   auto MaybeInsert = [&](MachineBasicBlock *MBB, MachineBasicBlock *Succ) {
     assert(MBB == Canonicalize(MBB));
-    if (!Succ) return;
+    assert(Succ);
     Succ = CanonicalizeSuccessor(Succ);
     if (!Succ) return;
     if (Reachable[MBB].insert(Succ).second) {
