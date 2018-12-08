@@ -376,10 +376,9 @@ static void SortBlocks(MachineFunction &MF, const MachineLoopInfo &MLI,
 
     } else {
       // Not a loop header. All predecessors should be sorted above.
-      for (auto Pred : MBB.predecessors()) {
+      for (auto Pred : MBB.predecessors())
         assert(Pred->getNumber() < MBB.getNumber() &&
                "Non-loop-header predecessors should be topologically sorted");
-      }
       assert(OnStack.count(SUI.getRegionFor(&MBB)) &&
              "Blocks must be nested in their regions");
     }
