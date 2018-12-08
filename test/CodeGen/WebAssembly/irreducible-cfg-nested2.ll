@@ -1,7 +1,12 @@
-; ModuleID = 'bugpoint-reduced-simplified.bc'
+; RUN: llc < %s -asm-verbose=false -verify-machineinstrs -disable-block-placement -wasm-disable-explicit-locals -wasm-keep-registers | FileCheck %s
+
 source_filename = "/tmp/emscripten_test/src.c"
 target datalayout = "e-m:e-p:32:32-i64:64-n32:64-S128"
 target triple = "wasm32-unknown-unknown-wasm"
+
+; Test an interesting pattern of nested irreducibility.
+
+; CHECK-LABEL: func_2:
 
 ; Function Attrs: noinline nounwind optnone
 define dso_local void @func_2() #0 {

@@ -1,7 +1,11 @@
-; ModuleID = 'bugpoint-reduced-simplified.bc'
-source_filename = "llvm-link"
+; RUN: llc < %s -asm-verbose=false -verify-machineinstrs -disable-block-placement -wasm-disable-explicit-locals -wasm-keep-registers | FileCheck %s
+
 target datalayout = "e-m:e-p:32:32-i64:64-n32:64-S128"
 target triple = "wasm32-unknown-unknown-wasm"
+
+; Test an interesting pattern of nested irreducibility.
+
+; CHECK-LABEL: tre_parse:
 
 define dso_local fastcc void @tre_parse() unnamed_addr {
 entry:

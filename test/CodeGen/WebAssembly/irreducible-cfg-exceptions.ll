@@ -7,8 +7,11 @@ $crashy = comdat any
 
 declare i32 @__gxx_personality_v0(...)
 
+; Check an interesting case of complex control flow due to exceptions CFG rewriting.
+; There should *not* be any irreducible control flow here.
+
 ; CHECK-LABEL: crashy:
-; CHECK: br_table
+; CHECK-NOT: br_table
 
 ; Function Attrs: minsize noinline optsize
 define hidden void @crashy() unnamed_addr #0 comdat personality i8* bitcast (i32 (...)* @__gxx_personality_v0 to i8*) {
