@@ -341,7 +341,6 @@ static void SortBlocks(MachineFunction &MF, const MachineLoopInfo &MLI,
     MaybeUpdateTerminator(MBB);
     MBB = Next;
   }
-if (!Entries.empty()) errs() << MF.getName() << '\n';
   assert(Entries.empty() && "Active sort region list not finished");
   MF.RenumberBlocks();
 
