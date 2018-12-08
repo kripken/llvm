@@ -86,11 +86,14 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
                                                      MachineLoop *Loop) {
   MachineBasicBlock *Header = Loop ? Loop->getHeader() : &*MF.begin();
 
-  // Ignoring natural loops (seeing them monolithically), and in a loop ignoring the header,
-  // we find all the blocks which can return to themselves, and the blocks which
-  // cannot. Loopers reachable from the non-loopers are loop entries: if there is
-  // 1, it is a natural loop; otherwise, we have irreducible control flow.
+  // The big picture: Ignoring natural loops (seeing them monolithically),
+  // and in a loop ignoring the header, we find all the blocks which can
+  // return to themselves ("loopers"), and the blocks which cannot. Loopers
+  // reachable from the non-loopers are loop entries: if there is
+  // 1, it is a natural loop and not a problem; otherwise, we have
+  // irreducible control flow.
 
+  // Identify all the blocks in this loop scope.
   std::set<MachineBasicBlock *> LoopBlocks;
   if (Loop) {
     for (auto *MBB : Loop->getBlocks()) {
@@ -102,11 +105,9 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
     }
   }
 
-  auto LoopDepth = Loop ? Loop->getLoopDepth() : 0;
-
   // Get a canonical block to represent a block or a loop: the block,
-  // or if in a loop, the loop header.
-  // XXX stop looking past loop exits..?
+  // or if in a loop, the loop header, of it in an outer loop scope,
+  // we can ignore it.
   auto Canonicalize = [&](MachineBasicBlock *MBB) -> MachineBasicBlock * {
     MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
     if (InnerLoop == Loop) {
@@ -118,15 +119,13 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
         return nullptr;
       }
       assert(InnerLoop);
-// We just care about immediate inner loops, not children of them.
-//if (InnerLoop->getLoopDepth() != LoopDepth + 1) {
-//  return nullptr;
-//}
       // It's in an inner loop, canonicalize it to the header of that loop.
       return InnerLoop->getHeader();
     }
   };
 
+  // For a successor we can additionally ignore it if it's a branch back
+  // to a natural loop top.
   auto CanonicalizeSuccessor = [&](MachineBasicBlock *MBB) -> MachineBasicBlock * {
     if (Loop && MBB == Loop->getHeader()) {
       // Ignore branches going to the loop's natural header.
