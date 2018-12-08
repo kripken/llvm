@@ -157,191 +157,144 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
     }
   }
 
-  //errs() << "  total blocks in this scope: " << LoopBlocks.size() << " with header bb." << Header->getNumber() << "." << Header->getName() << '\n';
-  for (auto *MBB : LoopBlocks) {
-  //errs() << MBB->getNumber() << " (in loop " << MLI.getLoopFor(MBB) << ")\n";
-  }
-  //errs() << '\n';
-  //errs() << "  relevant blocks (not in an inner loop scope; note this does not include loops in our scope, the header of which is relevant):\n";
-  for (auto *MBB : LoopBlocks) {
-    if (MLI.getLoopFor(MBB) == Loop) {
-      //errs() << MBB->getNumber() << ' ';
-    }
-  }
-  //errs() << '\n';
+  auto LoopDepth = Loop ? Loop->getLoopDepth() : 0;
 
-  #if 0
-    auto Relevant = [&](MachineBasicBlock *MBB) {
-      return MLI.getLoopFor(Succ) == Loop;
-    };
-  #endif
-
-    auto LoopDepth = Loop ? Loop->getLoopDepth() : 0;
-
-    // Get a canonical block to represent a block or a loop: the block,
-    // or if in a loop, the loop header.
-    // XXX stop looking past loop exits..?
-    auto Canonicalize = [&](MachineBasicBlock *MBB) -> MachineBasicBlock * {
-      MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
-      if (InnerLoop == Loop) {
-        return MBB;
-      } else {
-        // This is either in an outer or an inner loop, and not in ours.
-        if (!LoopBlocks.count(MBB)) {
-          // It's in outer code, ignore it.
-          return nullptr;
-        }
-        assert(InnerLoop);
-  // We just care about immediate inner loops, not children of them.
-  //if (InnerLoop->getLoopDepth() != LoopDepth + 1) {
-  //  return nullptr;
-  //}
-        // It's in an inner loop, canonicalize it to the header of that loop.
-        return InnerLoop->getHeader();
-      }
-    };
-
-    auto CanonicalizeSuccessor = [&](MachineBasicBlock *MBB) -> MachineBasicBlock * {
-      if (Loop && MBB == Loop->getHeader()) {
-        // Ignore branches going to the loop's natural header.
+  // Get a canonical block to represent a block or a loop: the block,
+  // or if in a loop, the loop header.
+  // XXX stop looking past loop exits..?
+  auto Canonicalize = [&](MachineBasicBlock *MBB) -> MachineBasicBlock * {
+    MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
+    if (InnerLoop == Loop) {
+      return MBB;
+    } else {
+      // This is either in an outer or an inner loop, and not in ours.
+      if (!LoopBlocks.count(MBB)) {
+        // It's in outer code, ignore it.
         return nullptr;
       }
-      return Canonicalize(MBB);
-    };
-
-    // Compute which (canonicalized) blocks each block can reach.
-    std::unordered_map<MachineBasicBlock *, std::unordered_set<MachineBasicBlock *>> Reachable;
-
-    // The worklist contains pairs of recent additions, (a, b), where we just added
-    // a link a => b.
-    typedef std::pair<MachineBasicBlock *, MachineBasicBlock *> BlockPair;
-    std::vector<BlockPair> WorkList;
-
-    auto MaybeInsert = [&](MachineBasicBlock *MBB, MachineBasicBlock *Succ) {
-      assert(MBB == Canonicalize(MBB));
-      if (!Succ) return;
-      Succ = CanonicalizeSuccessor(Succ);
-      if (!Succ) return;
-  //errs() << "    Planned addaddition of " << MBB->getNumber() << " => " << Succ->getNumber() << '\n';
-      if (Reachable[MBB].insert(Succ).second) {
-  //errs() << "      new!\n";
-        WorkList.push_back(BlockPair(MBB, Succ));
-      }
-    };
-
-    for (auto *MBB : LoopBlocks) {
-      MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
-
-  //errs() << "initial addition of " << MBB->getNumber() << " in inner " << InnerLoop << " : " << Loop << '\n';
-
-      if (InnerLoop == Loop) {
-        for (auto *Succ : MBB->successors()) {
-  //errs() << "  maybe add " << Succ->getNumber() << '\n';
-          MaybeInsert(MBB, Succ);
-        }
-      } else {
-        // It can't be in an outer loop - we loop on LoopBlocks - and so it must be
-        // an inner loop.
-  if (!InnerLoop) {
-    //errs() << "very bad " << Loop << " : " << InnerLoop << " : bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
-  }
-        assert(InnerLoop);
-        if (Canonicalize(MBB) != MBB) {
-          continue;
-        }
-        // We canonicalize it to the header of that loop, so ignore if it isn't that.
-  // remove this vvv, redundant now FIXME
-        if (MBB != InnerLoop->getHeader()) {
-  //errs() << "not header\n";
-          continue;
-        }
-        // The successors are those of the loop.
-        SmallVector<MachineBasicBlock *, 2> ExitBlocks;
-        InnerLoop->getExitBlocks(ExitBlocks);
-  //errs() << "  " << ExitBlocks.size() << " exits\n";
-        for (auto *Succ : ExitBlocks) {
-  //errs() << "  maybe inner add " << Succ->getNumber() << '\n';
-          MaybeInsert(MBB, Succ);
-        }
-      }
+      assert(InnerLoop);
+// We just care about immediate inner loops, not children of them.
+//if (InnerLoop->getLoopDepth() != LoopDepth + 1) {
+//  return nullptr;
+//}
+      // It's in an inner loop, canonicalize it to the header of that loop.
+      return InnerLoop->getHeader();
     }
-  //errs() << "Relevant blocks for reachability: " << Reachable.size() << '\n';
-    while (!WorkList.empty()) {
-      BlockPair Pair = WorkList.back();
-      WorkList.pop_back();
-      auto *MBB = Pair.first;
-      auto *Succ = Pair.second;
-      assert(MBB);
-      assert(Succ);
-  //errs() << "at " << MBB->getNumber() << " : " << Succ->getNumber() << '\n';
-      // We recently added MBB => Succ, and that means we may have enabled
-      // Pred => MBB => Succ.
-      assert(MBB == Canonicalize(MBB));
-      // If we don't care about MBB as a successor, there's nothing to do.
-      if (!CanonicalizeSuccessor(MBB)) continue;
-      // This is correct for both a block and a block representing a loop, as
-      // the loop is natural and so the predecessors are all predecessors of
-      // the loop header, which is the block we have here.
-      for (auto *Pred : MBB->predecessors()) {
-        // Canonicalize, make sure it's relevant, and check it's not the
-        // same block (an update to the block itself doesn't help compute
-        // that same block).
-  //errs() << "  pred: " << Pred->getNumber() << "\n";
-        Pred = Canonicalize(Pred);
-        if (Pred && Pred != MBB) {
-  //errs() << "   maybe insert: " << Pred->getNumber() << " => " << MBB->getNumber() << " => " << Succ->getNumber() << "\n";
-          MaybeInsert(Pred, Succ);
-        }
-      }
+  };
+
+  auto CanonicalizeSuccessor = [&](MachineBasicBlock *MBB) -> MachineBasicBlock * {
+    if (Loop && MBB == Loop->getHeader()) {
+      // Ignore branches going to the loop's natural header.
+      return nullptr;
     }
-  //errs() << "Computed reachabilities\n";
-  for (auto& pair : Reachable) {
-  //errs() << "bb." << pair.first->getNumber() << "." << pair.first->getName() << '\n';
-    for (auto* S : pair.second) {
-  //errs() << "  => bb." << S->getNumber() << "." << S->getName() << '\n';
+    return Canonicalize(MBB);
+  };
+
+  // Compute which (canonicalized) blocks each block can reach.
+  std::unordered_map<MachineBasicBlock *, std::unordered_set<MachineBasicBlock *>> Reachable;
+
+  // The worklist contains pairs of recent additions, (a, b), where we just added
+  // a link a => b.
+  typedef std::pair<MachineBasicBlock *, MachineBasicBlock *> BlockPair;
+  std::vector<BlockPair> WorkList;
+
+  auto MaybeInsert = [&](MachineBasicBlock *MBB, MachineBasicBlock *Succ) {
+    assert(MBB == Canonicalize(MBB));
+    if (!Succ) return;
+    Succ = CanonicalizeSuccessor(Succ);
+    if (!Succ) return;
+    if (Reachable[MBB].insert(Succ).second) {
+      WorkList.push_back(BlockPair(MBB, Succ));
+    }
+  };
+
+  for (auto *MBB : LoopBlocks) {
+    MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
+
+    if (InnerLoop == Loop) {
+      for (auto *Succ : MBB->successors()) {
+        MaybeInsert(MBB, Succ);
+      }
+    } else {
+      // It can't be in an outer loop - we loop on LoopBlocks - and so it must be
+      // an inner loop.
+      assert(InnerLoop);
+      if (Canonicalize(MBB) != MBB) {
+        continue;
+      }
+      // We canonicalize it to the header of that loop, so ignore if it isn't that.
+// remove this vvv, redundant now FIXME
+      if (MBB != InnerLoop->getHeader()) {
+        continue;
+      }
+      // The successors are those of the loop.
+      SmallVector<MachineBasicBlock *, 2> ExitBlocks;
+      InnerLoop->getExitBlocks(ExitBlocks);
+      for (auto *Succ : ExitBlocks) {
+        MaybeInsert(MBB, Succ);
+      }
     }
   }
 
-    SetVector<MachineBasicBlock *> Loopers;
-    for (auto MBB : LoopBlocks) {
-      if (Reachable[MBB].count(MBB)) {
-        Loopers.insert(MBB);
+  while (!WorkList.empty()) {
+    BlockPair Pair = WorkList.back();
+    WorkList.pop_back();
+    auto *MBB = Pair.first;
+    auto *Succ = Pair.second;
+    assert(MBB);
+    assert(Succ);
+    // We recently added MBB => Succ, and that means we may have enabled
+    // Pred => MBB => Succ.
+    assert(MBB == Canonicalize(MBB));
+    // If we don't care about MBB as a successor, there's nothing to do.
+    if (!CanonicalizeSuccessor(MBB)) continue;
+    // This is correct for both a block and a block representing a loop, as
+    // the loop is natural and so the predecessors are all predecessors of
+    // the loop header, which is the block we have here.
+    for (auto *Pred : MBB->predecessors()) {
+      // Canonicalize, make sure it's relevant, and check it's not the
+      // same block (an update to the block itself doesn't help compute
+      // that same block).
+      Pred = Canonicalize(Pred);
+      if (Pred && Pred != MBB) {
+        MaybeInsert(Pred, Succ);
       }
     }
+  }
 
-  //errs() << "loopers: " << Loopers.size() << '\n';
+  SetVector<MachineBasicBlock *> Loopers;
+  for (auto MBB : LoopBlocks) {
+    if (Reachable[MBB].count(MBB)) {
+      Loopers.insert(MBB);
+    }
+  }
 
   // The header cannot be a looper. At the toplevel, LLVM does not allow the entry to be
   // in a loop, and in a natural loop we should ignore the header.
   assert(Loopers.count(Header) == 0);
 
-    SmallPtrSet<MachineBasicBlock *, 4> Entries;
-    SmallVector<MachineBasicBlock *, 4> SortedEntries;
-    for (auto *Looper : Loopers) {
-      for (auto *Pred : Looper->predecessors()) {
-        Pred = Canonicalize(Pred);
-        if (Pred && !Loopers.count(Pred)) {
-          Entries.insert(Looper);
-          SortedEntries.push_back(Looper);
-          break;
-        }
+  SmallPtrSet<MachineBasicBlock *, 4> Entries;
+  SmallVector<MachineBasicBlock *, 4> SortedEntries;
+  for (auto *Looper : Loopers) {
+    for (auto *Pred : Looper->predecessors()) {
+      Pred = Canonicalize(Pred);
+      if (Pred && !Loopers.count(Pred)) {
+        Entries.insert(Looper);
+        SortedEntries.push_back(Looper);
+        break;
       }
     }
-
-    std::sort(SortedEntries.begin(), SortedEntries.end(), [&](const MachineBasicBlock *A, const MachineBasicBlock *B) {
-      auto ANum = A->getNumber();
-      auto BNum = B->getNumber();
-      assert(ANum != -1 && BNum != -1);
-      assert(ANum != BNum);
-      return ANum < BNum;
-    });
-  //errs() << "entries: " << Entries.size() << '\n';
-
-    if (Entries.size() <= 1) return false;
-
-  for (auto* MBB : SortedEntries) {
-  //errs() << " bad: bb." << MBB->getNumber() << "." << MBB->getName() << '\n';
   }
+
+  std::sort(SortedEntries.begin(), SortedEntries.end(), [&](const MachineBasicBlock *A, const MachineBasicBlock *B) {
+    auto ANum = A->getNumber();
+    auto BNum = B->getNumber();
+    assert(ANum != -1 && BNum != -1);
+    assert(ANum != BNum);
+    return ANum < BNum;
+  });
+
+  if (Entries.size() <= 1) return false;
 
   // Create a dispatch block which will
   // contain a jump table to any block in the problematic set of blocks.
@@ -387,7 +340,6 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
       }
     }
   }
-  //errs() << "total preds to bads: " << AllPreds.size() << '\n';
 
   for (MachineBasicBlock *MBB : AllPreds) {
     DenseMap<MachineBasicBlock *, MachineBasicBlock *> Map;
@@ -428,7 +380,6 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
                  .getMBB());
 
   return true;
-
 }
 
 bool WebAssemblyFixIrreducibleControlFlow::runOnMachineFunction(
@@ -461,7 +412,6 @@ bool WebAssemblyFixIrreducibleControlFlow::runOnMachineFunction(
 
     // Visit all the loops.
     SmallVector<MachineLoop *, 8> Worklist(MLI.begin(), MLI.end());
-//errs() << "Loops: " << Worklist.size() << '\n';
     while (!Worklist.empty()) {
       MachineLoop *Loop = Worklist.pop_back_val();
       Worklist.append(Loop->begin(), Loop->end());
