@@ -153,7 +153,11 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
     Succ = CanonicalizeSuccessor(Succ);
     if (!Succ) return;
     if (Reachable[MBB].insert(Succ).second) {
-      WorkList.push_back(BlockPair(MBB, Succ));
+      // There may be no work, if we don't care about MBB as a successor,
+      // when considering something else => MBB => Succ.
+      if (CanonicalizeSuccessor(MBB)) {
+        WorkList.push_back(BlockPair(MBB, Succ));
+      }
     }
   };
 
@@ -192,10 +196,8 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
     assert(Succ);
     assert(MBB == Canonicalize(MBB));
     // We recently added MBB => Succ, and that means we may have enabled
-    // Pred => MBB => Succ.
-    // If we don't care about MBB as a successor, there's nothing to do.
-    if (!CanonicalizeSuccessor(MBB)) continue;
-    // This is correct for both a block and a block representing a loop, as
+    // Pred => MBB => Succ. Check all the predecessors. Note that our loop
+    // here is correct for both a block and a block representing a loop, as
     // the loop is natural and so the predecessors are all predecessors of
     // the loop header, which is the block we have here.
     for (auto *Pred : MBB->predecessors()) {
