@@ -343,22 +343,26 @@ bool WebAssemblyFixIrreducibleControlFlow::runOnMachineFunction(
   bool Changed = false;
   auto &MLI = getAnalysis<MachineLoopInfo>();
 
-  // When we modify something, bail out and recompute MLI, then start again. Multiple
-  // iterations may be necessary for particularly pesky irreducible control flow.
+  // When we modify something, bail out and recompute MLI, then start again, as
+  // we create a new natural loop when we resolve irreducible control flow, and
+  // other loops may become nested in it, etc. In practice this is not an issue
+  // because irreducible control flow is rare, only very few cycles are needed
+  // here.
 
   auto Iteration = [&]() {
-
     auto DoVisitLoop = [&](MachineFunction&MF, MachineLoopInfo& MLI, MachineLoop *Loop) {
       if (VisitLoop(MF, MLI, Loop)) {
         // We rewrote part of the function; recompute MLI and start again.
-    MF.RenumberBlocks();
-    getAnalysis<MachineDominatorTree>().runOnMachineFunction(MF);
-    MLI.runOnMachineFunction(MF);
-  //MF.dump();
+        LLVM_DEBUG(dbgs() << "Recomputing dominators and loops.\n");
+        MF.getRegInfo().invalidateLiveness();
+        MF.RenumberBlocks();
+        getAnalysis<MachineDominatorTree>().runOnMachineFunction(MF);
+        MLI.runOnMachineFunction(MF);
         return Changed = true;
       }
       return false;
     };
+
     // Visit the function body, which is identified as a null loop.
     if (DoVisitLoop(MF, MLI, nullptr)) return true;
 
@@ -374,15 +378,6 @@ bool WebAssemblyFixIrreducibleControlFlow::runOnMachineFunction(
   };
 
   while (Iteration()) {}
-
-  // If we made any changes, completely recompute everything.
-  if (LLVM_UNLIKELY(Changed)) {
-    LLVM_DEBUG(dbgs() << "Recomputing dominators and loops.\n");
-    MF.getRegInfo().invalidateLiveness();
-    MF.RenumberBlocks();
-    getAnalysis<MachineDominatorTree>().runOnMachineFunction(MF);
-    MLI.runOnMachineFunction(MF);
-  }
 
   return Changed;
 }
