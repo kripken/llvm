@@ -261,14 +261,14 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
     return false;
 
   // Sort the entries to ensure a deterministic build.
-  std::sort(SortedEntries.begin(), SortedEntries.end(),
-            [&](const MachineBasicBlock *A, const MachineBasicBlock *B) {
-              auto ANum = A->getNumber();
-              auto BNum = B->getNumber();
-              assert(ANum != -1 && BNum != -1);
-              assert(ANum != BNum);
-              return ANum < BNum;
-            });
+  llvm::sort(SortedEntries,
+             [&](const MachineBasicBlock *A, const MachineBasicBlock *B) {
+               auto ANum = A->getNumber();
+               auto BNum = B->getNumber();
+               assert(ANum != -1 && BNum != -1);
+               assert(ANum != BNum);
+               return ANum < BNum;
+             });
 
   // Create a dispatch block which will contain a jump table to the entries.
   MachineBasicBlock *Dispatch = MF.CreateMachineBasicBlock();
