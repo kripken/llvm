@@ -348,8 +348,33 @@ class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
 
   bool runOnMachineFunction(MachineFunction &MF) override;
 
-  bool visitLoop(MachineFunction &MF, MachineLoopInfo &MLI, MachineLoop *Loop) {
-    return LoopFixer(MF, MLI, Loop).run();
+  bool runOnLoop(MachineFunction &MF, MachineLoopInfo &MLI, MachineLoop *Loop) {
+    if (LoopFixer(MF, MLI, Loop).run()) {
+      // We rewrote part of the function; recompute MLI and start again.
+      LLVM_DEBUG(dbgs() << "Recomputing loops.\n");
+      MF.getRegInfo().invalidateLiveness();
+      MF.RenumberBlocks();
+      MLI.runOnMachineFunction(MF);
+      return true;
+    }
+    return false;
+  }
+
+  bool runIteration(MachineFunction &MF, MachineLoopInfo &MLI) {
+    // Visit the function body, which is identified as a null loop.
+    if (runOnLoop(MF, MLI, nullptr))
+      return true;
+
+    // Visit all the loops.
+    SmallVector<MachineLoop *, 8> Worklist(MLI.begin(), MLI.end());
+    while (!Worklist.empty()) {
+      MachineLoop *Loop = Worklist.pop_back_val();
+      Worklist.append(Loop->begin(), Loop->end());
+      if (runOnLoop(MF, MLI, Loop))
+        return true;
+    }
+
+    return false;
   }
 
 public:
@@ -381,37 +406,8 @@ bool WebAssemblyFixIrreducibleControlFlow::runOnMachineFunction(
   // because irreducible control flow is rare, only very few cycles are needed
   // here.
 
-  auto iteration = [&]() {
-    auto doVisitLoop = [&](MachineFunction &MF, MachineLoopInfo &MLI,
-                           MachineLoop *Loop) {
-      if (visitLoop(MF, MLI, Loop)) {
-        // We rewrote part of the function; recompute MLI and start again.
-        LLVM_DEBUG(dbgs() << "Recomputing loops.\n");
-        MF.getRegInfo().invalidateLiveness();
-        MF.RenumberBlocks();
-        MLI.runOnMachineFunction(MF);
-        return Changed = true;
-      }
-      return false;
-    };
-
-    // Visit the function body, which is identified as a null loop.
-    if (DovisitLoop(MF, MLI, nullptr))
-      return true;
-
-    // Visit all the loops.
-    SmallVector<MachineLoop *, 8> Worklist(MLI.begin(), MLI.end());
-    while (!Worklist.empty()) {
-      MachineLoop *Loop = Worklist.pop_back_val();
-      Worklist.append(Loop->begin(), Loop->end());
-      if (DovisitLoop(MF, MLI, Loop))
-        return true;
-    }
-
-    return false;
-  };
-
-  while (iteration()) {
+  while (runIteration(MF, MLI)) {
+    Changed = true;
   }
 
   return Changed;
