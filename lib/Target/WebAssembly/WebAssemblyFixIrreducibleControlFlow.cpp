@@ -49,9 +49,6 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#include <unordered_map>
-#include <unordered_set>
-
 #include "MCTargetDesc/WebAssemblyMCTargetDesc.h"
 #include "WebAssembly.h"
 #include "WebAssemblyMachineFunctionInfo.h"
@@ -89,8 +86,8 @@ private:
   MachineBasicBlock *Header;
   std::set<MachineBasicBlock *> LoopBlocks;
 
-  using BlockSet = std::unordered_set<MachineBasicBlock *>;
-  std::unordered_map<MachineBasicBlock *, BlockSet> Reachable;
+  using BlockSet = DenseSet<MachineBasicBlock *>;
+  DenseMap<MachineBasicBlock *, BlockSet> Reachable;
 
   // The worklist contains pairs of recent additions, (a, b), where we just
   // added a link a => b.
