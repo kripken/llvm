@@ -8,8 +8,8 @@
 //===----------------------------------------------------------------------===//
 ///
 /// \file
-/// This file implements a pass that transforms irreducible control flow
-/// into reducible control flow. Irreducible control flow means multiple-entry
+/// This file implements a pass that transforms irreducible control flow into
+/// reducible control flow. Irreducible control flow means multiple-entry
 /// loops; they appear as CFG cycles that are not recorded in MachineLoopInfo
 /// due to being unnatural.
 ///
@@ -17,30 +17,28 @@
 /// it linearizes control flow, turning diamonds into two triangles, which is
 /// both unnecessary and undesirable for WebAssembly.
 ///
-/// The big picture: Ignoring natural loops (seeing them monolithically),
-/// we find all the blocks which can return to themselves ("loopers").
-/// Loopers reachable from the non-loopers are loop entries: if there are 2
-/// or more, then we have irreducible control flow. We fix that as follows:
-/// in each block reaching an entry we assign to a "label" helper variable
-/// with an id of the block we wish to reach, and branch to a new block that
-/// dispatches to all the options. That block is then the single entry in
-/// a new natural loop.
+/// The big picture: Ignoring natural loops (seeing them monolithically), we
+/// find all the blocks which can return to themselves ("loopers"). Loopers
+/// reachable from the non-loopers are loop entries: if there are 2 or more,
+/// then we have irreducible control flow. We fix that as follows: in each
+/// block reaching an entry we assign to a "label" helper variable with an id
+/// of the block we wish to reach, and branch to a new block that dispatches to
+/// all the options. That block is then the single entry in a new natural loop.
 ///
-/// This is similar to what the Relooper [1] does, both identify looping
-/// code that requires multiple entries, and resolve it in a similar way.
-/// In Relooper terminology, we implement a Multiple shape in a Loop
-/// shape. Note also that like the Relooper, we implement a "minimal"
-/// intervention: we only use the "label" helper for the blocks we
-/// absolutely must and no others. We also prioritize code size and do not
-/// perform node splitting (i.e. we don't duplicate code in order to resolve
-/// irreducibility).
+/// This is similar to what the Relooper [1] does, both identify looping code
+/// that requires multiple entries, and resolve it in a similar way. In
+/// Relooper terminology, we implement a Multiple shape in a Loop shape. Note
+/// also that like the Relooper, we implement a "minimal" intervention: we only
+/// use the "label" helper for the blocks we absolutely must and no others. We
+/// also prioritize code size and do not perform node splitting (i.e. we don't
+/// duplicate code in order to resolve irreducibility).
 ///
 /// The difference between this code and the Relooper is that the Relooper also
 /// generates ifs and loops and works in a recursive manner, knowing at each
 /// point what the entries are, and recursively breaks down the problem. Here
 /// we just want to resolve irreducible control flow, and we also want to use
-/// as much LLVM infrastructure as possible. So we use the MachineLoopInfo
-/// to identify natural loops, etc., and we start with the whole CFG and must
+/// as much LLVM infrastructure as possible. So we use the MachineLoopInfo to
+/// identify natural loops, etc., and we start with the whole CFG and must
 /// identify both the looping code and its entries.
 ///
 /// [1] Alon Zakai. 2011. Emscripten: an LLVM-to-JavaScript compiler. In
@@ -123,9 +121,8 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
     }
   }
 
-  // Get a canonical block to represent a block or a loop: the block,
-  // or if in a loop, the loop header, of it in an outer loop scope,
-  // we can ignore it.
+  // Get a canonical block to represent a block or a loop: the block, or if in
+  // a loop, the loop header, of it in an outer loop scope, we can ignore it.
   auto Canonicalize = [&](MachineBasicBlock *MBB) -> MachineBasicBlock * {
     MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
     if (InnerLoop == Loop) {
@@ -142,10 +139,9 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
     }
   };
 
-  // For a successor we can additionally ignore it if it's a branch back
-  // to a natural loop top, as when we are in the scope of a loop, we
-  // just care about internal irreducibility, and can ignore the loop
-  // we are in.
+  // For a successor we can additionally ignore it if it's a branch back to a
+  // natural loop top, as when we are in the scope of a loop, we just care
+  // about internal irreducibility, and can ignore the loop we are in.
   auto CanonicalizeSuccessor =
       [&](MachineBasicBlock *MBB) -> MachineBasicBlock * {
     if (Loop && MBB == Loop->getHeader()) {
@@ -164,8 +160,8 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
   typedef std::pair<MachineBasicBlock *, MachineBasicBlock *> BlockPair;
   std::vector<BlockPair> WorkList;
 
-  // Potentially insert a new reachable edge, and if so, note it as
-  // further work.
+  // Potentially insert a new reachable edge, and if so, note it as further
+  // work.
   auto MaybeInsert = [&](MachineBasicBlock *MBB, MachineBasicBlock *Succ) {
     assert(MBB == Canonicalize(MBB));
     assert(Succ);
@@ -173,8 +169,8 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
     if (!Succ)
       return;
     if (Reachable[MBB].insert(Succ).second) {
-      // There may be no work, if we don't care about MBB as a successor,
-      // when considering something else => MBB => Succ.
+      // There may be no work, if we don't care about MBB as a successor, when
+      // considering something else => MBB => Succ.
       if (CanonicalizeSuccessor(MBB)) {
         WorkList.push_back(BlockPair(MBB, Succ));
       }
@@ -216,14 +212,14 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
     assert(Succ);
     assert(MBB == CanonicalizeSuccessor(MBB));
     // We recently added MBB => Succ, and that means we may have enabled
-    // Pred => MBB => Succ. Check all the predecessors. Note that our loop
-    // here is correct for both a block and a block representing a loop, as
-    // the loop is natural and so the predecessors are all predecessors of
-    // the loop header, which is the block we have here.
+    // Pred => MBB => Succ. Check all the predecessors. Note that our loop here
+    // is correct for both a block and a block representing a loop, as the loop
+    // is natural and so the predecessors are all predecessors of the loop
+    // header, which is the block we have here.
     for (auto *Pred : MBB->predecessors()) {
-      // Canonicalize, make sure it's relevant, and check it's not the
-      // same block (an update to the block itself doesn't help compute
-      // that same block).
+      // Canonicalize, make sure it's relevant, and check it's not the same
+      // block (an update to the block itself doesn't help compute that same
+      // block).
       Pred = Canonicalize(Pred);
       if (Pred && Pred != MBB) {
         MaybeInsert(Pred, Succ);
@@ -302,9 +298,9 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
     Dispatch->addSuccessor(MBB);
   }
 
-  // Rewrite the problematic successors for every that wants to reach the
-  // bad blocks. For simplicity, we just introduce a new block for every
-  // edge we need to rewrite. (Fancier things are possible.)
+  // Rewrite the problematic successors for every that wants to reach the bad
+  // blocks. For simplicity, we just introduce a new block for every edge we
+  // need to rewrite. (Fancier things are possible.)
 
   SetVector<MachineBasicBlock *> AllPreds;
   for (auto *MBB : SortedEntries) {
