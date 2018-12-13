@@ -72,58 +72,34 @@ using namespace llvm;
 #define DEBUG_TYPE "wasm-fix-irreducible-control-flow"
 
 namespace {
-class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
-  StringRef getPassName() const override {
-    return "WebAssembly Fix Irreducible Control Flow";
-  }
 
-  void getAnalysisUsage(AnalysisUsage &AU) const override {
-    AU.setPreservesCFG();
-    AU.addRequired<MachineDominatorTree>();
-    AU.addPreserved<MachineDominatorTree>();
-    AU.addRequired<MachineLoopInfo>();
-    AU.addPreserved<MachineLoopInfo>();
-    MachineFunctionPass::getAnalysisUsage(AU);
-  }
-
-  bool runOnMachineFunction(MachineFunction &MF) override;
-
-  bool VisitLoop(MachineFunction &MF, MachineLoopInfo &MLI, MachineLoop *Loop);
-
+class LoopFixer {
 public:
-  static char ID; // Pass identification, replacement for typeid
-  WebAssemblyFixIrreducibleControlFlow() : MachineFunctionPass(ID) {}
-};
-} // end anonymous namespace
+  LoopFixer(MachineFunction &MF, MachineLoopInfo &MLI, MachineLoop *Loop) :
+    MF(MF), MLI(MLI), Loop(Loop) {}
 
-char WebAssemblyFixIrreducibleControlFlow::ID = 0;
-INITIALIZE_PASS(WebAssemblyFixIrreducibleControlFlow, DEBUG_TYPE,
-                "Removes irreducible control flow", false, false)
+  // Run the fixer on the given inputs. Returns whether changes were made.
+  bool run();
 
-FunctionPass *llvm::createWebAssemblyFixIrreducibleControlFlow() {
-  return new WebAssemblyFixIrreducibleControlFlow();
-}
+private:
+  MachineFunction &MF;
+  MachineLoopInfo &MLI;
+  MachineLoop *Loop;
 
-bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
-                                                     MachineLoopInfo &MLI,
-                                                     MachineLoop *Loop) {
-  MachineBasicBlock *Header = Loop ? Loop->getHeader() : &*MF.begin();
-
-  // Identify all the blocks in this loop scope.
+  MachineBasicBlock *Header;
   std::set<MachineBasicBlock *> LoopBlocks;
-  if (Loop) {
-    for (auto *MBB : Loop->getBlocks()) {
-      LoopBlocks.insert(MBB);
-    }
-  } else {
-    for (auto &MBB : MF) {
-      LoopBlocks.insert(&MBB);
-    }
-  }
+
+  typedef std::unordered_set<MachineBasicBlock *> BlockSet;
+  std::unordered_map<MachineBasicBlock *, BlockSet> Reachable;
+
+  // The worklist contains pairs of recent additions, (a, b), where we just
+  // added a link a => b.
+  typedef std::pair<MachineBasicBlock *, MachineBasicBlock *> BlockPair;
+  std::vector<BlockPair> WorkList;
 
   // Get a canonical block to represent a block or a loop: the block, or if in
   // a loop, the loop header, of it in an outer loop scope, we can ignore it.
-  auto Canonicalize = [&](MachineBasicBlock *MBB) -> MachineBasicBlock * {
+  MachineBasicBlock *Canonicalize(MachineBasicBlock *MBB) {
     MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
     if (InnerLoop == Loop) {
       return MBB;
@@ -137,32 +113,22 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
       // It's in an inner loop, canonicalize it to the header of that loop.
       return InnerLoop->getHeader();
     }
-  };
+  }
 
   // For a successor we can additionally ignore it if it's a branch back to a
   // natural loop top, as when we are in the scope of a loop, we just care
   // about internal irreducibility, and can ignore the loop we are in.
-  auto CanonicalizeSuccessor =
-      [&](MachineBasicBlock *MBB) -> MachineBasicBlock * {
+  MachineBasicBlock *CanonicalizeSuccessor(MachineBasicBlock *MBB) {
     if (Loop && MBB == Loop->getHeader()) {
       // Ignore branches going to the loop's natural header.
       return nullptr;
     }
     return Canonicalize(MBB);
-  };
-
-  // Compute which (canonicalized) blocks each block can reach.
-  typedef std::unordered_set<MachineBasicBlock *> BlockSet;
-  std::unordered_map<MachineBasicBlock *, BlockSet> Reachable;
-
-  // The worklist contains pairs of recent additions, (a, b), where we just
-  // added a link a => b.
-  typedef std::pair<MachineBasicBlock *, MachineBasicBlock *> BlockPair;
-  std::vector<BlockPair> WorkList;
+  }
 
   // Potentially insert a new reachable edge, and if so, note it as further
   // work.
-  auto MaybeInsert = [&](MachineBasicBlock *MBB, MachineBasicBlock *Succ) {
+  void MaybeInsert(MachineBasicBlock *MBB, MachineBasicBlock *Succ) {
     assert(MBB == Canonicalize(MBB));
     assert(Succ);
     Succ = CanonicalizeSuccessor(Succ);
@@ -175,7 +141,24 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
         WorkList.push_back(BlockPair(MBB, Succ));
       }
     }
-  };
+  }
+};
+
+bool LoopFixer::run() {
+  Header = Loop ? Loop->getHeader() : &*MF.begin();
+
+  // Identify all the blocks in this loop scope.
+  if (Loop) {
+    for (auto *MBB : Loop->getBlocks()) {
+      LoopBlocks.insert(MBB);
+    }
+  } else {
+    for (auto &MBB : MF) {
+      LoopBlocks.insert(&MBB);
+    }
+  }
+
+  // Compute which (canonicalized) blocks each block can reach.
 
   // Add all the initial work.
   for (auto *MBB : LoopBlocks) {
@@ -350,6 +333,40 @@ bool WebAssemblyFixIrreducibleControlFlow::VisitLoop(MachineFunction &MF,
                  .getMBB());
 
   return true;
+}
+
+class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
+  StringRef getPassName() const override {
+    return "WebAssembly Fix Irreducible Control Flow";
+  }
+
+  void getAnalysisUsage(AnalysisUsage &AU) const override {
+    AU.setPreservesCFG();
+    AU.addRequired<MachineDominatorTree>();
+    AU.addPreserved<MachineDominatorTree>();
+    AU.addRequired<MachineLoopInfo>();
+    AU.addPreserved<MachineLoopInfo>();
+    MachineFunctionPass::getAnalysisUsage(AU);
+  }
+
+  bool runOnMachineFunction(MachineFunction &MF) override;
+
+  bool VisitLoop(MachineFunction &MF, MachineLoopInfo &MLI, MachineLoop *Loop) {
+    return LoopFixer(MF, MLI, Loop).run();
+  }
+
+public:
+  static char ID; // Pass identification, replacement for typeid
+  WebAssemblyFixIrreducibleControlFlow() : MachineFunctionPass(ID) {}
+};
+} // end anonymous namespace
+
+char WebAssemblyFixIrreducibleControlFlow::ID = 0;
+INITIALIZE_PASS(WebAssemblyFixIrreducibleControlFlow, DEBUG_TYPE,
+                "Removes irreducible control flow", false, false)
+
+FunctionPass *llvm::createWebAssemblyFixIrreducibleControlFlow() {
+  return new WebAssemblyFixIrreducibleControlFlow();
 }
 
 bool WebAssemblyFixIrreducibleControlFlow::runOnMachineFunction(
