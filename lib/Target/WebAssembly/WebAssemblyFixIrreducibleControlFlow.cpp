@@ -92,7 +92,7 @@ private:
   // The worklist contains pairs of recent additions, (a, b), where we just
   // added a link a => b.
   using BlockPair = std::pair<MachineBasicBlock *, MachineBasicBlock *>;
-  std::vector<BlockPair> WorkList;
+  SmallVector<BlockPair, 4> WorkList;
 
   // Get a canonical block to represent a block or a loop: the block, or if in
   // a loop, the loop header, of it in an outer loop scope, we can ignore it.
@@ -135,7 +135,7 @@ private:
       // There may be no work, if we don't care about MBB as a successor, when
       // considering something else => MBB => Succ.
       if (canonicalizeSuccessor(MBB)) {
-        WorkList.push_back(BlockPair(MBB, Succ));
+        WorkList.emplace_back(MBB, Succ);
       }
     }
   }
@@ -184,10 +184,9 @@ bool LoopFixer::run() {
 
   // Do work until we are all done.
   while (!WorkList.empty()) {
-    BlockPair Pair = WorkList.back();
-    WorkList.pop_back();
-    auto *MBB = Pair.first;
-    auto *Succ = Pair.second;
+    MachineBasicBlock *MBB;
+    MachineBasicBlock *Succ;
+    std::tie(MBB, Succ) = WorkList.pop_back_val();
     assert(MBB);
     assert(Succ);
     assert(MBB == canonicalizeSuccessor(MBB));
