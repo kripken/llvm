@@ -88,12 +88,12 @@ private:
   MachineBasicBlock *Header;
   std::set<MachineBasicBlock *> LoopBlocks;
 
-  typedef std::unordered_set<MachineBasicBlock *> BlockSet;
+  using BlockSet = std::unordered_set<MachineBasicBlock *>;
   std::unordered_map<MachineBasicBlock *, BlockSet> Reachable;
 
   // The worklist contains pairs of recent additions, (a, b), where we just
   // added a link a => b.
-  typedef std::pair<MachineBasicBlock *, MachineBasicBlock *> BlockPair;
+  using BlockPair = std::pair<MachineBasicBlock *, MachineBasicBlock *>;
   std::vector<BlockPair> WorkList;
 
   // Get a canonical block to represent a block or a loop: the block, or if in
