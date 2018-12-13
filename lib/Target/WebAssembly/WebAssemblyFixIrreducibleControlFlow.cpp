@@ -349,16 +349,18 @@ class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
 
   bool runIteration(MachineFunction &MF, MachineLoopInfo &MLI) {
     // Visit the function body, which is identified as a null loop.
-    if (LoopFixer(MF, MLI, nullptr).run())
+    if (LoopFixer(MF, MLI, nullptr).run()) {
       return true;
+    }
 
     // Visit all the loops.
     SmallVector<MachineLoop *, 8> Worklist(MLI.begin(), MLI.end());
     while (!Worklist.empty()) {
       MachineLoop *Loop = Worklist.pop_back_val();
       Worklist.append(Loop->begin(), Loop->end());
-      if (LoopFixer(MF, MLI, Loop).run())
+      if (LoopFixer(MF, MLI, Loop).run()) {
         return true;
+      }
     }
 
     return false;
