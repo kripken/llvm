@@ -59,7 +59,6 @@
 #include "llvm/ADT/PriorityQueue.h"
 #include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/SetVector.h"
-#include "llvm/CodeGen/MachineDominators.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
@@ -99,7 +98,7 @@ private:
 
   // Get a canonical block to represent a block or a loop: the block, or if in
   // a loop, the loop header, of it in an outer loop scope, we can ignore it.
-  MachineBasicBlock *Canonicalize(MachineBasicBlock *MBB) {
+  MachineBasicBlock *canonicalize(MachineBasicBlock *MBB) {
     MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
     if (InnerLoop == Loop) {
       return MBB;
@@ -118,26 +117,26 @@ private:
   // For a successor we can additionally ignore it if it's a branch back to a
   // natural loop top, as when we are in the scope of a loop, we just care
   // about internal irreducibility, and can ignore the loop we are in.
-  MachineBasicBlock *CanonicalizeSuccessor(MachineBasicBlock *MBB) {
+  MachineBasicBlock *canonicalizeSuccessor(MachineBasicBlock *MBB) {
     if (Loop && MBB == Loop->getHeader()) {
       // Ignore branches going to the loop's natural header.
       return nullptr;
     }
-    return Canonicalize(MBB);
+    return canonicalize(MBB);
   }
 
   // Potentially insert a new reachable edge, and if so, note it as further
   // work.
-  void MaybeInsert(MachineBasicBlock *MBB, MachineBasicBlock *Succ) {
-    assert(MBB == Canonicalize(MBB));
+  void maybeInsert(MachineBasicBlock *MBB, MachineBasicBlock *Succ) {
+    assert(MBB == canonicalize(MBB));
     assert(Succ);
-    Succ = CanonicalizeSuccessor(Succ);
+    Succ = canonicalizeSuccessor(Succ);
     if (!Succ)
       return;
     if (Reachable[MBB].insert(Succ).second) {
       // There may be no work, if we don't care about MBB as a successor, when
       // considering something else => MBB => Succ.
-      if (CanonicalizeSuccessor(MBB)) {
+      if (canonicalizeSuccessor(MBB)) {
         WorkList.push_back(BlockPair(MBB, Succ));
       }
     }
@@ -166,21 +165,21 @@ bool LoopFixer::run() {
 
     if (InnerLoop == Loop) {
       for (auto *Succ : MBB->successors()) {
-        MaybeInsert(MBB, Succ);
+        maybeInsert(MBB, Succ);
       }
     } else {
       // It can't be in an outer loop - we loop on LoopBlocks - and so it must
       // be an inner loop.
       assert(InnerLoop);
       // Check if we are the canonical block for this loop.
-      if (Canonicalize(MBB) != MBB) {
+      if (canonicalize(MBB) != MBB) {
         continue;
       }
       // The successors are those of the loop.
       SmallVector<MachineBasicBlock *, 2> ExitBlocks;
       InnerLoop->getExitBlocks(ExitBlocks);
       for (auto *Succ : ExitBlocks) {
-        MaybeInsert(MBB, Succ);
+        maybeInsert(MBB, Succ);
       }
     }
   }
@@ -193,7 +192,7 @@ bool LoopFixer::run() {
     auto *Succ = Pair.second;
     assert(MBB);
     assert(Succ);
-    assert(MBB == CanonicalizeSuccessor(MBB));
+    assert(MBB == canonicalizeSuccessor(MBB));
     // We recently added MBB => Succ, and that means we may have enabled
     // Pred => MBB => Succ. Check all the predecessors. Note that our loop here
     // is correct for both a block and a block representing a loop, as the loop
@@ -203,9 +202,9 @@ bool LoopFixer::run() {
       // Canonicalize, make sure it's relevant, and check it's not the same
       // block (an update to the block itself doesn't help compute that same
       // block).
-      Pred = Canonicalize(Pred);
+      Pred = canonicalize(Pred);
       if (Pred && Pred != MBB) {
-        MaybeInsert(Pred, Succ);
+        maybeInsert(Pred, Succ);
       }
     }
   }
@@ -226,7 +225,7 @@ bool LoopFixer::run() {
   SmallVector<MachineBasicBlock *, 4> SortedEntries;
   for (auto *Looper : Loopers) {
     for (auto *Pred : Looper->predecessors()) {
-      Pred = Canonicalize(Pred);
+      Pred = canonicalize(Pred);
       if (Pred && !Loopers.count(Pred)) {
         Entries.insert(Looper);
         SortedEntries.push_back(Looper);
@@ -342,8 +341,6 @@ class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.setPreservesCFG();
-    AU.addRequired<MachineDominatorTree>();
-    AU.addPreserved<MachineDominatorTree>();
     AU.addRequired<MachineLoopInfo>();
     AU.addPreserved<MachineLoopInfo>();
     MachineFunctionPass::getAnalysisUsage(AU);
@@ -351,7 +348,7 @@ class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
 
   bool runOnMachineFunction(MachineFunction &MF) override;
 
-  bool VisitLoop(MachineFunction &MF, MachineLoopInfo &MLI, MachineLoop *Loop) {
+  bool visitLoop(MachineFunction &MF, MachineLoopInfo &MLI, MachineLoop *Loop) {
     return LoopFixer(MF, MLI, Loop).run();
   }
 
@@ -384,15 +381,14 @@ bool WebAssemblyFixIrreducibleControlFlow::runOnMachineFunction(
   // because irreducible control flow is rare, only very few cycles are needed
   // here.
 
-  auto Iteration = [&]() {
-    auto DoVisitLoop = [&](MachineFunction &MF, MachineLoopInfo &MLI,
+  auto iteration = [&]() {
+    auto doVisitLoop = [&](MachineFunction &MF, MachineLoopInfo &MLI,
                            MachineLoop *Loop) {
-      if (VisitLoop(MF, MLI, Loop)) {
+      if (visitLoop(MF, MLI, Loop)) {
         // We rewrote part of the function; recompute MLI and start again.
-        LLVM_DEBUG(dbgs() << "Recomputing dominators and loops.\n");
+        LLVM_DEBUG(dbgs() << "Recomputing loops.\n");
         MF.getRegInfo().invalidateLiveness();
         MF.RenumberBlocks();
-        getAnalysis<MachineDominatorTree>().runOnMachineFunction(MF);
         MLI.runOnMachineFunction(MF);
         return Changed = true;
       }
@@ -400,7 +396,7 @@ bool WebAssemblyFixIrreducibleControlFlow::runOnMachineFunction(
     };
 
     // Visit the function body, which is identified as a null loop.
-    if (DoVisitLoop(MF, MLI, nullptr))
+    if (DovisitLoop(MF, MLI, nullptr))
       return true;
 
     // Visit all the loops.
@@ -408,14 +404,14 @@ bool WebAssemblyFixIrreducibleControlFlow::runOnMachineFunction(
     while (!Worklist.empty()) {
       MachineLoop *Loop = Worklist.pop_back_val();
       Worklist.append(Loop->begin(), Loop->end());
-      if (DoVisitLoop(MF, MLI, Loop))
+      if (DovisitLoop(MF, MLI, Loop))
         return true;
     }
 
     return false;
   };
 
-  while (Iteration()) {
+  while (iteration()) {
   }
 
   return Changed;
