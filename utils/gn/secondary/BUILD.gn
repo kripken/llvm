@@ -1,6 +1,8 @@
 group("default") {
   deps = [
-    "//llvm/lib/Demangle",
+    "//lld/tools/lld",
+    "//llvm/tools/llc",
+    "//llvm/tools/llvm-undname",
   ]
 }
 

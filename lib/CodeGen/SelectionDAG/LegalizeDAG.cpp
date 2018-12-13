@@ -1128,6 +1128,12 @@ void SelectionDAGLegalize::LegalizeOp(SDNode *Node) {
     Action = TLI.getOperationAction(Node->getOpcode(), Node->getValueType(0));
     break;
   }
+  case ISD::SMULFIX: {
+    unsigned Scale = Node->getConstantOperandVal(2);
+    Action = TLI.getFixedPointOperationAction(Node->getOpcode(),
+                                              Node->getValueType(0), Scale);
+    break;
+  }
   case ISD::MSCATTER:
     Action = TLI.getOperationAction(Node->getOpcode(),
                     cast<MaskedScatterSDNode>(Node)->getValue().getValueType());
@@ -1170,6 +1176,8 @@ void SelectionDAGLegalize::LegalizeOp(SDNode *Node) {
       }
     }
     break;
+    case ISD::FSHL:
+    case ISD::FSHR:
     case ISD::SRL_PARTS:
     case ISD::SRA_PARTS:
     case ISD::SHL_PARTS: {
@@ -3262,11 +3270,20 @@ bool SelectionDAGLegalize::ExpandNode(SDNode *Node) {
     }
     break;
   }
+  case ISD::FSHL:
+  case ISD::FSHR:
+    if (TLI.expandFunnelShift(Node, Tmp1, DAG))
+      Results.push_back(Tmp1);
+    break;
   case ISD::SADDSAT:
   case ISD::UADDSAT:
   case ISD::SSUBSAT:
   case ISD::USUBSAT: {
     Results.push_back(TLI.getExpandedSaturationAdditionSubtraction(Node, DAG));
+    break;
+  }
+  case ISD::SMULFIX: {
+    Results.push_back(TLI.getExpandedFixedPointMultiplication(Node, DAG));
     break;
   }
   case ISD::SADDO:
