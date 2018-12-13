@@ -59,6 +59,7 @@
 #include "llvm/ADT/PriorityQueue.h"
 #include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/SetVector.h"
+#include "llvm/CodeGen/MachineDominators.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
@@ -341,6 +342,8 @@ class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.setPreservesCFG();
+    AU.addRequired<MachineDominatorTree>();
+    AU.addPreserved<MachineDominatorTree>();
     AU.addRequired<MachineLoopInfo>();
     AU.addPreserved<MachineLoopInfo>();
     MachineFunctionPass::getAnalysisUsage(AU);
@@ -348,21 +351,9 @@ class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
 
   bool runOnMachineFunction(MachineFunction &MF) override;
 
-  bool runOnLoop(MachineFunction &MF, MachineLoopInfo &MLI, MachineLoop *Loop) {
-    if (LoopFixer(MF, MLI, Loop).run()) {
-      // We rewrote part of the function; recompute MLI and start again.
-      LLVM_DEBUG(dbgs() << "Recomputing loops.\n");
-      MF.getRegInfo().invalidateLiveness();
-      MF.RenumberBlocks();
-      MLI.runOnMachineFunction(MF);
-      return true;
-    }
-    return false;
-  }
-
   bool runIteration(MachineFunction &MF, MachineLoopInfo &MLI) {
     // Visit the function body, which is identified as a null loop.
-    if (runOnLoop(MF, MLI, nullptr))
+    if (LoopFixer(MF, MLI, nullptr).run())
       return true;
 
     // Visit all the loops.
@@ -370,7 +361,7 @@ class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
     while (!Worklist.empty()) {
       MachineLoop *Loop = Worklist.pop_back_val();
       Worklist.append(Loop->begin(), Loop->end());
-      if (runOnLoop(MF, MLI, Loop))
+      if (LoopFixer(MF, MLI, Loop).run())
         return true;
     }
 
@@ -405,8 +396,13 @@ bool WebAssemblyFixIrreducibleControlFlow::runOnMachineFunction(
   // other loops may become nested in it, etc. In practice this is not an issue
   // because irreducible control flow is rare, only very few cycles are needed
   // here.
-
   while (runIteration(MF, MLI)) {
+    // We rewrote part of the function; recompute MLI and start again.
+    LLVM_DEBUG(dbgs() << "Recomputing loops.\n");
+    MF.getRegInfo().invalidateLiveness();
+    MF.RenumberBlocks();
+    getAnalysis<MachineDominatorTree>().runOnMachineFunction(MF);
+    MLI.runOnMachineFunction(MF);
     Changed = true;
   }
 
