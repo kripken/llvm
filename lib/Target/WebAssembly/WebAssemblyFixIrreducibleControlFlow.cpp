@@ -73,8 +73,8 @@ namespace {
 
 class LoopFixer {
 public:
-  LoopFixer(MachineFunction &MF, MachineLoopInfo &MLI, MachineLoop *Loop) :
-    MF(MF), MLI(MLI), Loop(Loop) {}
+  LoopFixer(MachineFunction &MF, MachineLoopInfo &MLI, MachineLoop *Loop)
+      : MF(MF), MLI(MLI), Loop(Loop) {}
 
   // Run the fixer on the given inputs. Returns whether changes were made.
   bool run();
