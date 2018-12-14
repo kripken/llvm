@@ -96,7 +96,8 @@ private:
   SmallVector<BlockPair, 4> WorkList;
 
   // Get a canonical block to represent a block or a loop: the block, or if in
-  // a loop, the loop header, of it in an outer loop scope, we can ignore it.
+  // an inner loop, the loop header, of it in an outer loop scope, we can
+  // ignore it.
   MachineBasicBlock *canonicalize(MachineBasicBlock *MBB) {
     MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
     if (InnerLoop == Loop) {
