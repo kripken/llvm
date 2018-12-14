@@ -1,14 +1,15 @@
 ; RUN: llc < %s -asm-verbose=false -verify-machineinstrs -disable-block-placement -wasm-disable-explicit-locals -wasm-keep-registers | FileCheck %s
 
 target datalayout = "e-m:e-p:32:32-i64:64-n32:64-S128"
-target triple = "wasm32-unknown-unknown-wasm"
+target triple = "wasm32-unknown-unknown"
+
 
 ; Test an interesting pattern of nested irreducibility.
 ; Just check we resolve all the irreducibility here (if not we'd crash).
 
 ; CHECK-LABEL: tre_parse:
 
-define dso_local fastcc void @tre_parse() unnamed_addr {
+define void @tre_parse() {
 entry:
   br label %for.cond.outer
 

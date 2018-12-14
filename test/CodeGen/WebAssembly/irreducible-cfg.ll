@@ -123,7 +123,7 @@ A2:
 
 ; CHECK-LABEL: test3:
 ; CHECK: br_if
-define hidden void @test3(i32 %ws) #0 {
+define void @test3(i32 %ws) {
 entry:
   %ws.addr = alloca i32, align 4
   store volatile i32 %ws, i32* %ws.addr, align 4
@@ -172,7 +172,7 @@ if.end9:                                          ; preds = %if.end
 ; reduce in the inner loop that we just created.
 ; CHECK: br_table
 ; CHECK: br_table
-define hidden void @pi_next() local_unnamed_addr #0 {
+define void @pi_next() {
 entry:
   br i1 undef, label %sw.bb5, label %return
 
