@@ -20,10 +20,11 @@
 /// The big picture: Ignoring natural loops (seeing them monolithically), we
 /// find all the blocks which can return to themselves ("loopers"). Loopers
 /// reachable from the non-loopers are loop entries: if there are 2 or more,
-/// then we have irreducible control flow. We fix that as follows: in each
-/// block reaching an entry we assign to a "label" helper variable with an id
-/// of the block we wish to reach, and branch to a new block that dispatches to
-/// all the options. That block is then the single entry in a new natural loop.
+/// then we have irreducible control flow. We fix that as follows: a new block
+/// is created that can dispatch to each of the loop entries, based on the
+/// value of a label "helper" variable, and we replace direct branches to the
+/// entries with assignments to the label variable and a branch to the dispatch
+/// block. Then the dispatch block is the single entry in a new natural loop.
 ///
 /// This is similar to what the Relooper [1] does, both identify looping code
 /// that requires multiple entries, and resolve it in a similar way. In
