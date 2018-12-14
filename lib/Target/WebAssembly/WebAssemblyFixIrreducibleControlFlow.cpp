@@ -396,7 +396,7 @@ bool WebAssemblyFixIrreducibleControlFlow::runOnMachineFunction(
   // other loops may become nested in it, etc. In practice this is not an issue
   // because irreducible control flow is rare, only very few cycles are needed
   // here.
-  while (runIteration(MF, MLI)) {
+  while (LLVM_UNLIKELY(runIteration(MF, MLI))) {
     // We rewrote part of the function; recompute MLI and start again.
     LLVM_DEBUG(dbgs() << "Recomputing loops.\n");
     MF.getRegInfo().invalidateLiveness();
