@@ -46,7 +46,7 @@ if.end101:                                        ; preds = %if.then84, %if.then
   unreachable
 
 cleanup.thread:                                   ; preds = %if.then84
-  %call188 = tail call fastcc i32* undef(i32* %nbranch.0)
+  %call188 = tail call i32* undef(i32* %nbranch.0)
   switch i8 undef, label %for.cond.backedge [
     i8 92, label %land.lhs.true208
     i8 0, label %if.else252
