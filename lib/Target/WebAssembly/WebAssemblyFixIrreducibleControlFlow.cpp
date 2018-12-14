@@ -234,7 +234,7 @@ bool LoopFixer::run() {
   }
 
   // Check if we found irreducible control flow.
-  if (Entries.size() <= 1)
+  if (LLVM_LIKELY(Entries.size() <= 1))
     return false;
 
   // Sort the entries to ensure a deterministic build.
@@ -279,9 +279,9 @@ bool LoopFixer::run() {
     Dispatch->addSuccessor(MBB);
   }
 
-  // Rewrite the problematic successors for every that wants to reach the bad
-  // blocks. For simplicity, we just introduce a new block for every edge we
-  // need to rewrite. (Fancier things are possible.)
+  // Rewrite the problematic successors for every block that wants to reach the
+  // bad blocks. For simplicity, we just introduce a new block for every edge
+  // we need to rewrite. (Fancier things are possible.)
 
   SetVector<MachineBasicBlock *> AllPreds;
   for (auto *MBB : SortedEntries) {
