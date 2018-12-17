@@ -85,7 +85,7 @@ private:
   MachineLoop *Loop;
 
   MachineBasicBlock *Header;
-  std::set<MachineBasicBlock *> LoopBlocks;
+  DenseSet<MachineBasicBlock *> LoopBlocks;
 
   using BlockSet = DenseSet<MachineBasicBlock *>;
   DenseMap<MachineBasicBlock *, BlockSet> Reachable;
@@ -229,13 +229,11 @@ bool LoopFixer::run() {
 
   // Find the entries, loopers reachable from non-loopers.
   SmallPtrSet<MachineBasicBlock *, 4> Entries;
-  SmallVector<MachineBasicBlock *, 4> SortedEntries;
   for (auto *Looper : Loopers) {
     for (auto *Pred : Looper->predecessors()) {
       Pred = canonicalize(Pred);
       if (Pred && !Loopers.count(Pred)) {
         Entries.insert(Looper);
-        SortedEntries.push_back(Looper);
         break;
       }
     }
@@ -244,16 +242,6 @@ bool LoopFixer::run() {
   // Check if we found irreducible control flow.
   if (LLVM_LIKELY(Entries.size() <= 1))
     return false;
-
-  // Sort the entries to ensure a deterministic build.
-  llvm::sort(SortedEntries,
-             [&](const MachineBasicBlock *A, const MachineBasicBlock *B) {
-               auto ANum = A->getNumber();
-               auto BNum = B->getNumber();
-               assert(ANum != -1 && BNum != -1);
-               assert(ANum != BNum);
-               return ANum < BNum;
-             });
 
   // Create a dispatch block which will contain a jump table to the entries.
   MachineBasicBlock *Dispatch = MF.CreateMachineBasicBlock();
@@ -274,7 +262,7 @@ bool LoopFixer::run() {
   // Compute the indices in the superheader, one for each bad block, and
   // add them as successors.
   DenseMap<MachineBasicBlock *, unsigned> Indices;
-  for (auto *MBB : SortedEntries) {
+  for (auto *MBB : Entries) {
     auto Pair = Indices.insert(std::make_pair(MBB, 0));
     if (!Pair.second) {
       continue;
@@ -292,7 +280,7 @@ bool LoopFixer::run() {
   // we need to rewrite. (Fancier things are possible.)
 
   SetVector<MachineBasicBlock *> AllPreds;
-  for (auto *MBB : SortedEntries) {
+  for (auto *MBB : Entries) {
     for (auto *Pred : MBB->predecessors()) {
       if (Pred != Dispatch) {
         AllPreds.insert(Pred);
