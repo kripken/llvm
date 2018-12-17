@@ -1,6 +1,10 @@
-Irreducible control flow is not that rare, e.g. it happens in malloc and 3
-other places in the libc portions linked in to a hello world program. This
-patch improves how we handle that code: it emits a br_table to dispatch to only
-the minimal necessary number of blocks. This reduces the size of malloc by 33%,
-and makes it comparable in size to asm2wasm's malloc output.
+Author: Alon Zakai <azakai@google.com>
+
+    [WebAssembly] Optimize irreducible control flow
+
+    Irreducible control flow is not that rare, e.g. it happens in malloc and 3
+    other places in the libc portions linked in to a hello world program. This
+    patch improves how we handle that code: it emits a br_table to dispatch to only
+    the minimal necessary number of blocks. This reduces the size of malloc by 33%,
+    and makes it comparable in size to asm2wasm's malloc output.
 
