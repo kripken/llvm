@@ -85,7 +85,7 @@ private:
   MachineLoop *Loop;
 
   MachineBasicBlock *Header;
-  DenseSet<MachineBasicBlock *> LoopBlocks;
+  SetVector<MachineBasicBlock *> LoopBlocks;
 
   using BlockSet = DenseSet<MachineBasicBlock *>;
   DenseMap<MachineBasicBlock *, BlockSet> Reachable;
