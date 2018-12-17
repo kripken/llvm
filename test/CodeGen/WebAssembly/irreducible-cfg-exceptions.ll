@@ -17,91 +17,91 @@ entry:
   invoke void undef()
           to label %invoke.cont unwind label %lpad
 
-invoke.cont:                                      ; preds = %entry
+invoke.cont: ; preds = %entry
   invoke void undef()
           to label %invoke.cont4 unwind label %lpad3
 
-invoke.cont4:                                     ; preds = %invoke.cont
+invoke.cont4: ; preds = %invoke.cont
   %call.i82 = invoke i8* undef()
           to label %invoke.cont6 unwind label %lpad3
 
-invoke.cont6:                                     ; preds = %invoke.cont4
+invoke.cont6: ; preds = %invoke.cont4
   invoke void undef()
           to label %invoke.cont13 unwind label %lpad12
 
-invoke.cont13:                                    ; preds = %invoke.cont6
+invoke.cont13: ; preds = %invoke.cont6
   br label %for.cond
 
-for.cond:                                         ; preds = %for.cond.backedge, %invoke.cont13
-  br i1 undef, label %_ZNKSt3__219istreambuf_iteratorIcNS_11char_traitsIcEEE14__test_for_eofEv.exit.i.i, label %land.lhs.true.i.i.i
+for.cond: ; preds = %for.cond.backedge, %invoke.cont13
+  br i1 undef, label %exit2, label %land.lhs
 
-land.lhs.true.i.i.i:                              ; preds = %for.cond
+land.lhs: ; preds = %for.cond
   %call.i.i.i.i92 = invoke i32 undef()
-          to label %_ZNSt3__215basic_streambufIcNS_11char_traitsIcEEE5sgetcEv.exit.i.i.i unwind label %lpad16.loopexit
+          to label %exit1 unwind label %lpad16.loopexit
 
-_ZNSt3__215basic_streambufIcNS_11char_traitsIcEEE5sgetcEv.exit.i.i.i: ; preds = %land.lhs.true.i.i.i
-  br label %_ZNKSt3__219istreambuf_iteratorIcNS_11char_traitsIcEEE14__test_for_eofEv.exit.i.i
+exit1: ; preds = %land.lhs
+  br label %exit2
 
-_ZNKSt3__219istreambuf_iteratorIcNS_11char_traitsIcEEE14__test_for_eofEv.exit.i.i: ; preds = %_ZNSt3__215basic_streambufIcNS_11char_traitsIcEEE5sgetcEv.exit.i.i.i, %for.cond
+exit2: ; preds = %exit1, %for.cond
   %call.i.i12.i.i93 = invoke i32 undef()
-          to label %_ZNSt3__215basic_streambufIcNS_11char_traitsIcEEE5sgetcEv.exit.i19.i.i unwind label %lpad16.loopexit
+          to label %exit3 unwind label %lpad16.loopexit
 
-_ZNSt3__215basic_streambufIcNS_11char_traitsIcEEE5sgetcEv.exit.i19.i.i: ; preds = %_ZNKSt3__219istreambuf_iteratorIcNS_11char_traitsIcEEE14__test_for_eofEv.exit.i.i
+exit3: ; preds = %exit2
   invoke void undef()
           to label %invoke.cont23 unwind label %lpad22
 
-invoke.cont23:                                    ; preds = %_ZNSt3__215basic_streambufIcNS_11char_traitsIcEEE5sgetcEv.exit.i19.i.i
+invoke.cont23: ; preds = %exit3
   invoke void undef()
           to label %invoke.cont25 unwind label %lpad22
 
-invoke.cont25:                                    ; preds = %invoke.cont23
+invoke.cont25: ; preds = %invoke.cont23
   %call.i.i137 = invoke i32 undef()
           to label %invoke.cont29 unwind label %lpad16.loopexit
 
-lpad:                                             ; preds = %entry
+lpad: ; preds = %entry
   %0 = landingpad { i8*, i32 }
           cleanup
   unreachable
 
-lpad3:                                            ; preds = %invoke.cont4, %invoke.cont
+lpad3: ; preds = %invoke.cont4, %invoke.cont
   %1 = landingpad { i8*, i32 }
           cleanup
   unreachable
 
-lpad12:                                           ; preds = %invoke.cont6
+lpad12: ; preds = %invoke.cont6
   %2 = landingpad { i8*, i32 }
           cleanup
   resume { i8*, i32 } undef
 
-lpad16.loopexit:                                  ; preds = %if.then.i.i144, %invoke.cont29, %invoke.cont25, %_ZNKSt3__219istreambuf_iteratorIcNS_11char_traitsIcEEE14__test_for_eofEv.exit.i.i, %land.lhs.true.i.i.i
+lpad16.loopexit: ; preds = %if.then, %invoke.cont29, %invoke.cont25, %exit2, %land.lhs
   %lpad.loopexit = landingpad { i8*, i32 }
           cleanup
   unreachable
 
-lpad22:                                           ; preds = %invoke.cont23, %_ZNSt3__215basic_streambufIcNS_11char_traitsIcEEE5sgetcEv.exit.i19.i.i
+lpad22: ; preds = %invoke.cont23, %exit3
   %3 = landingpad { i8*, i32 }
           cleanup
   unreachable
 
-invoke.cont29:                                    ; preds = %invoke.cont25
+invoke.cont29: ; preds = %invoke.cont25
   invoke void undef()
           to label %invoke.cont33 unwind label %lpad16.loopexit
 
-invoke.cont33:                                    ; preds = %invoke.cont29
+invoke.cont33: ; preds = %invoke.cont29
   br label %for.inc
 
-for.inc:                                          ; preds = %invoke.cont33
+for.inc: ; preds = %invoke.cont33
   %cmp.i.i141 = icmp eq i8* undef, undef
-  br i1 %cmp.i.i141, label %if.then.i.i144, label %if.end.i.i146
+  br i1 %cmp.i.i141, label %if.then, label %if.end.i.i146
 
-if.then.i.i144:                                   ; preds = %for.inc
+if.then: ; preds = %for.inc
   %call.i.i148 = invoke i32 undef()
           to label %for.cond.backedge unwind label %lpad16.loopexit
 
-for.cond.backedge:                                ; preds = %if.end.i.i146, %if.then.i.i144
+for.cond.backedge: ; preds = %if.end.i.i146, %if.then
   br label %for.cond
 
-if.end.i.i146:                                    ; preds = %for.inc
+if.end.i.i146: ; preds = %for.inc
   call void undef()
   br label %for.cond.backedge
 }

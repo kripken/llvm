@@ -97,7 +97,7 @@ private:
 
   // Get a canonical block to represent a block or a loop: the block, or if in
   // an inner loop, the loop header, of it in an outer loop scope, we can
-  // ignore it.
+  // ignore it. We need to call this on all blocks we work on.
   MachineBasicBlock *canonicalize(MachineBasicBlock *MBB) {
     MachineLoop *InnerLoop = MLI.getLoopFor(MBB);
     if (InnerLoop == Loop) {
@@ -116,7 +116,8 @@ private:
 
   // For a successor we can additionally ignore it if it's a branch back to a
   // natural loop top, as when we are in the scope of a loop, we just care
-  // about internal irreducibility, and can ignore the loop we are in.
+  // about internal irreducibility, and can ignore the loop we are in. We need
+  // to call this on all blocks in a context where they are a successor.
   MachineBasicBlock *canonicalizeSuccessor(MachineBasicBlock *MBB) {
     if (Loop && MBB == Loop->getHeader()) {
       // Ignore branches going to the loop's natural header.
@@ -130,12 +131,16 @@ private:
   void maybeInsert(MachineBasicBlock *MBB, MachineBasicBlock *Succ) {
     assert(MBB == canonicalize(MBB));
     assert(Succ);
+    // Succ may not be interesting as a sucessor.
     Succ = canonicalizeSuccessor(Succ);
     if (!Succ)
       return;
     if (Reachable[MBB].insert(Succ).second) {
-      // There may be no work, if we don't care about MBB as a successor, when
-      // considering something else => MBB => Succ.
+      // For there to be further work, it means that we have
+      //   X => MBB => Succ
+      // for some other X, and in that case X => Succ would be a new edge for
+      // us to discover later. However, if we don't care about MBB as a
+      // successor, then we don't care about that anyhow.
       if (canonicalizeSuccessor(MBB)) {
         WorkList.emplace_back(MBB, Succ);
       }
@@ -189,8 +194,11 @@ bool LoopFixer::run() {
     MachineBasicBlock *MBB;
     MachineBasicBlock *Succ;
     std::tie(MBB, Succ) = WorkList.pop_back_val();
+    // The worklist item is an edge we just added, so it must have valid blocks
+    // (and not something canonicalized to nullptr).
     assert(MBB);
     assert(Succ);
+    // The successor in that pair must also be a valid successor.
     assert(MBB == canonicalizeSuccessor(MBB));
     // We recently added MBB => Succ, and that means we may have enabled
     // Pred => MBB => Succ. Check all the predecessors. Note that our loop here
