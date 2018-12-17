@@ -228,7 +228,7 @@ bool LoopFixer::run() {
   assert(Loopers.count(Header) == 0);
 
   // Find the entries, loopers reachable from non-loopers.
-  SmallPtrSet<MachineBasicBlock *, 4> Entries;
+  SetVector<MachineBasicBlock *> Entries;
   for (auto *Looper : Loopers) {
     for (auto *Pred : Looper->predecessors()) {
       Pred = canonicalize(Pred);
