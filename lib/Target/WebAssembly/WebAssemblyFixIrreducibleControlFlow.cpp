@@ -85,9 +85,9 @@ private:
   MachineLoop *Loop;
 
   MachineBasicBlock *Header;
-  SetVector<MachineBasicBlock *> LoopBlocks;
+  SmallPtrSet<MachineBasicBlock *, 4> LoopBlocks;
 
-  using BlockSet = DenseSet<MachineBasicBlock *>;
+  using BlockSet = SmallPtrSet<MachineBasicBlock *, 4>;
   DenseMap<MachineBasicBlock *, BlockSet> Reachable;
 
   // The worklist contains pairs of recent additions, (a, b), where we just
@@ -217,7 +217,7 @@ bool LoopFixer::run() {
   }
 
   // It's now trivial to identify the loopers.
-  SetVector<MachineBasicBlock *> Loopers;
+  SmallPtrSet<MachineBasicBlock *, 4> Loopers;
   for (auto MBB : LoopBlocks) {
     if (Reachable[MBB].count(MBB)) {
       Loopers.insert(MBB);
@@ -228,12 +228,14 @@ bool LoopFixer::run() {
   assert(Loopers.count(Header) == 0);
 
   // Find the entries, loopers reachable from non-loopers.
-  SetVector<MachineBasicBlock *> Entries;
+  SmallPtrSet<MachineBasicBlock *, 4> Entries;
+  SmallVector<MachineBasicBlock *, 4> SortedEntries;
   for (auto *Looper : Loopers) {
     for (auto *Pred : Looper->predecessors()) {
       Pred = canonicalize(Pred);
       if (Pred && !Loopers.count(Pred)) {
         Entries.insert(Looper);
+        SortedEntries.push_back(Looper);
         break;
       }
     }
@@ -242,6 +244,16 @@ bool LoopFixer::run() {
   // Check if we found irreducible control flow.
   if (LLVM_LIKELY(Entries.size() <= 1))
     return false;
+
+  // Sort the entries to ensure a deterministic build.
+  llvm::sort(SortedEntries,
+             [&](const MachineBasicBlock *A, const MachineBasicBlock *B) {
+               auto ANum = A->getNumber();
+               auto BNum = B->getNumber();
+               assert(ANum != -1 && BNum != -1);
+               assert(ANum != BNum);
+               return ANum < BNum;
+             });
 
   // Create a dispatch block which will contain a jump table to the entries.
   MachineBasicBlock *Dispatch = MF.CreateMachineBasicBlock();
@@ -262,7 +274,7 @@ bool LoopFixer::run() {
   // Compute the indices in the superheader, one for each bad block, and
   // add them as successors.
   DenseMap<MachineBasicBlock *, unsigned> Indices;
-  for (auto *MBB : Entries) {
+  for (auto *MBB : SortedEntries) {
     auto Pair = Indices.insert(std::make_pair(MBB, 0));
     if (!Pair.second) {
       continue;
@@ -279,11 +291,11 @@ bool LoopFixer::run() {
   // bad blocks. For simplicity, we just introduce a new block for every edge
   // we need to rewrite. (Fancier things are possible.)
 
-  SetVector<MachineBasicBlock *> AllPreds;
-  for (auto *MBB : Entries) {
+  SmallVector<MachineBasicBlock *, 4> AllPreds;
+  for (auto *MBB : SortedEntries) {
     for (auto *Pred : MBB->predecessors()) {
       if (Pred != Dispatch) {
-        AllPreds.insert(Pred);
+        AllPreds.push_back(Pred);
       }
     }
   }
