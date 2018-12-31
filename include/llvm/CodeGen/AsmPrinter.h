@@ -546,7 +546,7 @@ public:
   ///
   /// \p Value - The value to emit.
   /// \p Size - The size of the integer (in bytes) to emit.
-  virtual void EmitDebugThreadLocal(const MCExpr *Value, unsigned Size) const;
+  virtual void EmitDebugValue(const MCExpr *Value, unsigned Size) const;
 
   //===------------------------------------------------------------------===//
   // Dwarf Lowering Routines
@@ -656,6 +656,8 @@ private:
   void EmitLLVMUsedList(const ConstantArray *InitList);
   /// Emit llvm.ident metadata in an '.ident' directive.
   void EmitModuleIdents(Module &M);
+  /// Emit bytes for llvm.commandline metadata.
+  void EmitModuleCommandLines(Module &M);
   void EmitXXStructorList(const DataLayout &DL, const Constant *List,
                           bool isCtor);
 

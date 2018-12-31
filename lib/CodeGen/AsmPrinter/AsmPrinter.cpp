@@ -263,7 +263,7 @@ bool AsmPrinter::doInitialization(Module &M) {
   // use the directive, where it would need the same conditionalization
   // anyway.
   const Triple &Target = TM.getTargetTriple();
-  OutStreamer->EmitVersionForTarget(Target);
+  OutStreamer->EmitVersionForTarget(Target, M.getSDKVersion());
 
   // Allow the target to emit any magic that it wants at the start of the file.
   EmitStartOfAsmFile(M);
@@ -630,8 +630,7 @@ void AsmPrinter::EmitGlobalVariable(const GlobalVariable *GV) {
 ///
 /// \p Value - The value to emit.
 /// \p Size - The size of the integer (in bytes) to emit.
-void AsmPrinter::EmitDebugThreadLocal(const MCExpr *Value,
-                                      unsigned Size) const {
+void AsmPrinter::EmitDebugValue(const MCExpr *Value, unsigned Size) const {
   OutStreamer->EmitValue(Value, Size);
 }
 
@@ -1500,6 +1499,9 @@ bool AsmPrinter::doFinalization(Module &M) {
   // Emit llvm.ident metadata in an '.ident' directive.
   EmitModuleIdents(M);
 
+  // Emit bytes for llvm.commandline metadata.
+  EmitModuleCommandLines(M);
+
   // Emit __morestack address if needed for indirect calls.
   if (MMI->usesMorestackAddr()) {
     unsigned Align = 1;
@@ -2007,6 +2009,29 @@ void AsmPrinter::EmitModuleIdents(Module &M) {
       OutStreamer->EmitIdent(S->getString());
     }
   }
+}
+
+void AsmPrinter::EmitModuleCommandLines(Module &M) {
+  MCSection *CommandLine = getObjFileLowering().getSectionForCommandLines();
+  if (!CommandLine)
+    return;
+
+  const NamedMDNode *NMD = M.getNamedMetadata("llvm.commandline");
+  if (!NMD || !NMD->getNumOperands())
+    return;
+
+  OutStreamer->PushSection();
+  OutStreamer->SwitchSection(CommandLine);
+  OutStreamer->EmitZeros(1);
+  for (unsigned i = 0, e = NMD->getNumOperands(); i != e; ++i) {
+    const MDNode *N = NMD->getOperand(i);
+    assert(N->getNumOperands() == 1 &&
+           "llvm.commandline metadata entry can have only one operand");
+    const MDString *S = cast<MDString>(N->getOperand(0));
+    OutStreamer->EmitBytes(S->getString());
+    OutStreamer->EmitZeros(1);
+  }
+  OutStreamer->PopSection();
 }
 
 //===--------------------------------------------------------------------===//

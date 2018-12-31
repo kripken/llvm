@@ -25,6 +25,7 @@
 #include "llvm/IR/Mangler.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/LTO/LTOBackend.h"
+#include "llvm/LTO/SummaryBasedOptimizations.h"
 #include "llvm/Linker/IRMover.h"
 #include "llvm/Object/IRObjectFile.h"
 #include "llvm/Support/Error.h"
@@ -42,6 +43,7 @@
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
+#include "llvm/Transforms/Utils/FunctionImportUtils.h"
 #include "llvm/Transforms/Utils/SplitModule.h"
 
 #include <set>
@@ -221,8 +223,14 @@ void llvm::computeLTOCacheKey(
   // Imported functions may introduce new uses of type identifier resolutions,
   // so we need to collect their used resolutions as well.
   for (auto &ImpM : ImportList)
-    for (auto &ImpF : ImpM.second)
-      AddUsedThings(Index.findSummaryInModule(ImpF, ImpM.first()));
+    for (auto &ImpF : ImpM.second) {
+      GlobalValueSummary *S = Index.findSummaryInModule(ImpF, ImpM.first());
+      AddUsedThings(S);
+      // If this is an alias, we also care about any types/etc. that the aliasee
+      // may reference.
+      if (auto *AS = dyn_cast_or_null<AliasSummary>(S))
+        AddUsedThings(AS->getBaseObject());
+    }
 
   auto AddTypeIdSummary = [&](StringRef TId, const TypeIdSummary &S) {
     AddString(TId);
@@ -359,7 +367,10 @@ static void thinLTOInternalizeAndPromoteGUID(
                // Ignore local and appending linkage values since the linker
                // doesn't resolve them.
                !GlobalValue::isLocalLinkage(S->linkage()) &&
-               !GlobalValue::isAppendingLinkage(S->linkage()))
+               S->linkage() != GlobalValue::AppendingLinkage &&
+               // We can't internalize available_externally globals because this
+               // can break function pointer equality.
+               S->linkage() != GlobalValue::AvailableExternallyLinkage)
       S->setLinkage(GlobalValue::InternalLinkage);
   }
 }
@@ -1160,6 +1171,9 @@ Error LTO::runThinLTO(AddStreamFn AddStream, NativeObjectCache Cache) {
   for (auto &Mod : ThinLTO.ModuleMap)
     if (!ModuleToDefinedGVSummaries.count(Mod.first))
       ModuleToDefinedGVSummaries.try_emplace(Mod.first);
+
+  // Synthesize entry counts for functions in the CombinedIndex.
+  computeSyntheticCounts(ThinLTO.CombinedIndex);
 
   StringMap<FunctionImporter::ImportMapTy> ImportLists(
       ThinLTO.ModuleMap.size());

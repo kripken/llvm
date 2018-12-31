@@ -24,6 +24,8 @@
 #include "llvm/Transforms/IPO/SampleProfile.h"
 using namespace llvm;
 
+#define DEBUG_TYPE "x86-discriminate-memops"
+
 namespace {
 
 using Location = std::pair<StringRef, unsigned>;
@@ -106,13 +108,26 @@ bool X86DiscriminateMemOps::runOnMachineFunction(MachineFunction &MF) {
         DI = ReferenceDI;
       }
       DenseSet<unsigned> &Set = Seen[diToLocation(DI)];
-      std::pair<DenseSet<unsigned>::iterator, bool> P =
+      const std::pair<DenseSet<unsigned>::iterator, bool> TryInsert =
           Set.insert(DI->getBaseDiscriminator());
-      if (!P.second) {
+      if (!TryInsert.second) {
         DI = DI->setBaseDiscriminator(++MemOpDiscriminators[diToLocation(DI)]);
         updateDebugInfo(&MI, DI);
         Changed = true;
-        *P.first = DI->getBaseDiscriminator();
+        const std::pair<DenseSet<unsigned>::iterator, bool> MustInsert =
+            Set.insert(DI->getBaseDiscriminator());
+        // FIXME (mtrofin): check if the to-be inserted base discriminator can
+        // be added. This requires a new API on DILocation.
+        // The assumption is that this scenario is infrequent/OK not to support.
+        // If evidence points otherwise, we can explore synthesize unique DIs by
+        // adding fake line numbers.
+        if (!MustInsert.second) {
+          LLVM_DEBUG(dbgs()
+                     << "Unable to create a unique discriminator in "
+                     << DI->getFilename() << " Line: " << DI->getLine()
+                     << " Column: " << DI->getColumn()
+                     << ". This is likely due to a large macro expansion.\n");
+        }
       }
 
       // Bump the reference DI to avoid cramming discriminators on line 0.
