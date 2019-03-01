@@ -270,10 +270,10 @@ bool LoopFixer::run() {
     if (Removable.empty()) {
       break;
     }
-    for (auto* Entry : Removable) {
+    for (auto *Entry : Removable) {
       Entries.erase(Entry);
-      SortedEntries.erase(std::find(SortedEntries.begin(), SortedEntries.end(),
-                                    Entry));
+      SortedEntries.erase(
+          std::find(SortedEntries.begin(), SortedEntries.end(), Entry));
     }
   }
 
@@ -293,8 +293,8 @@ bool LoopFixer::run() {
   for (auto Block : SortedEntries)
     assert(Block->getNumber() != -1);
   if (SortedEntries.size() > 1) {
-    for (auto I = SortedEntries.begin(), E = SortedEntries.end() - 1;
-         I != E; ++I) {
+    for (auto I = SortedEntries.begin(), E = SortedEntries.end() - 1; I != E;
+         ++I) {
       auto ANum = (*I)->getNumber();
       auto BNum = (*(std::next(I)))->getNumber();
       assert(ANum != BNum);
