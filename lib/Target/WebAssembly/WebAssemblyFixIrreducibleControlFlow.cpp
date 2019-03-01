@@ -49,6 +49,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
+#include <algorithm>
+
 #include "MCTargetDesc/WebAssemblyMCTargetDesc.h"
 #include "WebAssembly.h"
 #include "WebAssemblyMachineFunctionInfo.h"
@@ -237,6 +239,41 @@ bool LoopFixer::run() {
         SortedEntries.push_back(Looper);
         break;
       }
+    }
+  }
+
+  // Find entries that are involved in the same loop. If we have
+  //    A -> Loop1 -> B -> Loop2
+  // Then Loop1 and Loop2 both have non-looper predecessors, but this is not
+  // irreducible since they are separate. To prove separation, remove any entry
+  // that cannot be reached from any of the others. If we can't remove them all
+  // in this manner, then we are left with irreducibility.
+  // TODO: We could identify clusters of irreducibility as well, as a further
+  //       refinement.
+  while (Entries.size() > 1) {
+    SmallVector<MachineBasicBlock *, 4> Removable;
+    for (auto *Entry : SortedEntries) {
+      bool ReachableFromAnotherEntry = false;
+      for (auto *OtherEntry : SortedEntries) {
+        if (OtherEntry == Entry) {
+          continue;
+        }
+        if (Reachable[OtherEntry].count(Entry)) {
+          ReachableFromAnotherEntry = true;
+          break;
+        }
+      }
+      if (!ReachableFromAnotherEntry) {
+        Removable.push_back(Entry);
+      }
+    }
+    if (Removable.empty()) {
+      break;
+    }
+    for (auto* Entry : Removable) {
+      Entries.erase(Entry);
+      SortedEntries.erase(std::find(SortedEntries.begin(), SortedEntries.end(),
+                                    Entry));
     }
   }
 
