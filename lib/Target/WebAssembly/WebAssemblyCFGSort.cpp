@@ -244,7 +244,7 @@ static void sortBlocks(MachineFunction &MF, const MachineLoopInfo &MLI,
     NumPredsLeft[MBB.getNumber()] = N;
   }
 
-  // Topological sort the CFG, with additional constraints:
+  // Topologically sort the CFG, with additional constraints:
   //  - Between a region header and the last block in the region, there can be
   //    no blocks not dominated by its header.
   //  - It's desirable to preserve the original block order when possible.
@@ -340,6 +340,10 @@ static void sortBlocks(MachineFunction &MF, const MachineLoopInfo &MLI,
     maybeUpdateTerminator(MBB);
     MBB = Next;
   }
+if (!Entries.empty()) {
+  errs() << "sad " << MF.getName() << '\n';
+  MF.dump();
+}
   assert(Entries.empty() && "Active sort region list not finished");
   MF.RenumberBlocks();
 

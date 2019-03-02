@@ -230,13 +230,11 @@ bool LoopFixer::run() {
 
   // Find the entries, loopers reachable from non-loopers.
   SmallPtrSet<MachineBasicBlock *, 4> Entries;
-  SmallVector<MachineBasicBlock *, 4> SortedEntries;
   for (auto *Looper : Loopers) {
     for (auto *Pred : Looper->predecessors()) {
       Pred = canonicalize(Pred);
       if (Pred && !Loopers.count(Pred)) {
         Entries.insert(Looper);
-        SortedEntries.push_back(Looper);
         break;
       }
     }
@@ -250,11 +248,20 @@ bool LoopFixer::run() {
   // in this manner, then we are left with irreducibility.
   // TODO: We could identify clusters of irreducibility as well, as a further
   //       refinement.
+
+if (MF.getName() == "ps_hints_apply") {
+errs() << "at ps_hints_apply\n";
+  for (auto* a : Entries) errs() << "entry " << a->getNumber() << "." << a->getName() << '\n';
+}
+
   while (Entries.size() > 1) {
+if (MF.getName() == "ps_hints_apply") {
+  errs() << "loop\n";
+}
     SmallVector<MachineBasicBlock *, 4> Removable;
-    for (auto *Entry : SortedEntries) {
+    for (auto *Entry : Entries) {
       bool ReachableFromAnotherEntry = false;
-      for (auto *OtherEntry : SortedEntries) {
+      for (auto *OtherEntry : Entries) {
         if (OtherEntry == Entry) {
           continue;
         }
@@ -264,6 +271,9 @@ bool LoopFixer::run() {
         }
       }
       if (!ReachableFromAnotherEntry) {
+if (MF.getName() == "ps_hints_apply") {
+errs() << "  removable " << Entry->getNumber() << "." << Entry->getName() << " : " << Entry->getFullName() << '\n';
+}
         Removable.push_back(Entry);
       }
     }
@@ -272,16 +282,21 @@ bool LoopFixer::run() {
     }
     for (auto *Entry : Removable) {
       Entries.erase(Entry);
-      SortedEntries.erase(
-          std::find(SortedEntries.begin(), SortedEntries.end(), Entry));
     }
   }
+errs() << "after ps_hints_apply " << Entries.size() << "\n";
 
   // Check if we found irreducible control flow.
   if (LLVM_LIKELY(Entries.size() <= 1))
     return false;
 
+errs() << "fixup! " << MF.getName() << '\n';
+
   // Sort the entries to ensure a deterministic build.
+  SmallVector<MachineBasicBlock *, 4> SortedEntries;
+  for (auto *Entry: Entries) {
+    SortedEntries.push_back(Entry);
+  }
   llvm::sort(SortedEntries,
              [&](const MachineBasicBlock *A, const MachineBasicBlock *B) {
                auto ANum = A->getNumber();
