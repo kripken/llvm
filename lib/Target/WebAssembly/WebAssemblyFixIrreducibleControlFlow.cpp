@@ -15,17 +15,17 @@
 /// it linearizes control flow, turning diamonds into two triangles, which is
 /// both unnecessary and undesirable for WebAssembly.
 ///
-/// The big picture: We recursively process each "region",
-/// defined as a group of blocks with a single entry and no branches back to
-/// that entry. A region may be the entire function body, or the inner part of a
-/// loop, i.e., the loop's body without branches back to the loop entry. In each
-/// region we fix up multi-entry loops by adding a new block that can dispatch
-/// to each of the loop entries, based on the value of a label "helper"
-/// variable, and we replace direct branches to the entries with assignments to
-/// the label variable and a branch to the dispatch block. Then the dispatch
-/// block is the single entry in the loop containing the previous multiple
-/// entries. After ensuring all the loops in a region are reducible, we recurse
-/// into them. The total time complexity of this pass is:
+/// The big picture: We recursively process each "region", defined as a group
+/// of blocks with a single entry and no branches back to that entry. A region
+/// may be the entire function body, or the inner part of a loop, i.e., the
+/// loop's body without branches back to the loop entry. In each region we fix
+/// up multi-entry loops by adding a new block that can dispatch to each of the
+/// loop entries, based on the value of a label "helper" variable, and we
+/// replace direct branches to the entries with assignments to the label
+/// variable and a branch to the dispatch block. Then the dispatch block is the
+/// single entry in the loop containing the previous multiple entries. After
+/// ensuring all the loops in a region are reducible, we recurse into them. The
+/// total time complexity of this pass is:
 ///   O(NumBlocks * NumNestedLoops * NumIrreducibleLoops +
 ///     NumLoops * NumLoops)
 ///
@@ -34,10 +34,10 @@
 /// Relooper terminology, we implement a Multiple shape in a Loop shape). Note
 /// also that like the Relooper, we implement a "minimal" intervention: we only
 /// use the "label" helper for the blocks we absolutely must and no others. We
-/// also prioritize code size and do not
-/// duplicate code in order to resolve irreducibility. The graph algorithms for
-/// finding loops and entries and so forth are also similar to the Relooper.
-/// The main differences between this pass and the Relooper are:
+/// also prioritize code size and do not duplicate code in order to resolve
+/// irreducibility. The graph algorithms for finding loops and entries and so
+/// forth are also similar to the Relooper. The main differences between this
+/// pass and the Relooper are:
 ///  * We just care about irreducibility, so we just look at loops.
 ///  * The Relooper emits structured control flow (with ifs etc.), while we
 ///    emit a CFG.
