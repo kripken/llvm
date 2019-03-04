@@ -1,12 +1,12 @@
 WebAssembly: Irreducible control flow rewrite
 
   Rewrite WebAssemblyFixIrreducibleControlFlow to a simpler and cleaner design,
-  which directly computes reachability and other properties itself instead of
-  using LLVM loop info, which we had to update or throw out, and was the cause
-  of complexity and bugs. (The new graph analyses are very similar to how the
-  Relooper algorithm would find loop entries and so forth.)
+  which directly computes reachability and other properties itself. This avoids
+  previous complexity and bugs. (The new graph analyses are very similar to how
+  the Relooper algorithm would find loop entries and so forth.)
 
   This fixes a few bugs, including where we had a false positive and thought
   fannkuch was irreducible when it was not, which made us much larger and
-  slower there, and a reverse bug where we missed irreducibility.
+  slower there, and a reverse bug where we missed irreducibility. On fannkuch,
+  we used to be 44% slower than asm2wasm and are now 4% faster.
 
