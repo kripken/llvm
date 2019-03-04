@@ -170,8 +170,6 @@ private:
     // loop enterers.
     for (auto *Looper : Loopers) {
       for (auto *Pred : Looper->predecessors()) {
-// Looper != Entry, and so precessors must be in the loop, and so in the region.
-assert(inRegion(Pred)); // dupe of above
         // Pred can reach Looper. If Looper can reach Pred, it is in the loop;
         // otherwise, it is a block that enters into the loop.
         if (!canReach(Looper, Pred)) {
