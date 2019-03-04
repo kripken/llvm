@@ -414,17 +414,6 @@ class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
     return "WebAssembly Fix Irreducible Control Flow";
   }
 
-#if 0 // needed?
-  void getAnalysisUsage(AnalysisUsage &AU) const override {
-    AU.setPreservesCFG();
-    AU.addRequired<MachineDominatorTree>();
-    AU.addPreserved<MachineDominatorTree>();
-    AU.addRequired<MachineLoopInfo>();
-    AU.addPreserved<MachineLoopInfo>();
-    MachineFunctionPass::getAnalysisUsage(AU);
-  }
-#endif
-
   bool runOnMachineFunction(MachineFunction &MF) override;
 
 public:
@@ -451,9 +440,6 @@ bool WebAssemblyFixIrreducibleControlFlow::runOnMachineFunction(
     // We rewrote part of the function; recompute relevant things.
     MF.getRegInfo().invalidateLiveness();
     MF.RenumberBlocks();
-#if 0 // XXX?
-    getAnalysis<MachineDominatorTree>().runOnMachineFunction(MF);
-#endif
     return true;
   }
 
