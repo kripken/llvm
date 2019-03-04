@@ -109,7 +109,7 @@ public:
   // Get all blocks that enter a particular loop from outside.
   const BlockSet &getLoopEnterers(MachineBasicBlock *LoopEntry) {
     assert(inRegion(LoopEntry));
-    return LooperEnterers[LoopEntry];
+    return LoopEnterers[LoopEntry];
   }
 
 private:
@@ -160,7 +160,7 @@ private:
 
     // Blocks that can return to themselves are in a loop.
     for (auto *MBB : Blocks) {
-      if (Graph.canReach(MBB, MBB)) {
+      if (canReach(MBB, MBB)) {
         Loopers.insert(MBB);
       }
     }
@@ -229,7 +229,10 @@ public:
   // Run on the given input. Returns whether changes were made.
   bool run() {
     // Start the recursive process on the entire function body.
-    BlockSet AllBlocks(MF.begin(), MF.end());
+    BlockSet AllBlocks;
+    for (auto &MBB : MF) {
+      AllBlocks.insert(&MBB);
+    }
     processRegion(&*MF.begin(), AllBlocks);
     return Changed;
   }
@@ -243,7 +246,7 @@ private:
     // Remove irreducibility before processing child loops, which may take
     // multiple iterations.
     do {
-      ReachabilityGraph Graph(Blocks);
+      ReachabilityGraph Graph(Entry, Blocks);
 
       bool FoundIrreducibility = false;
 
@@ -295,7 +298,7 @@ private:
     // Sort the entries to ensure a deterministic build.
     BlockVector SortedEntries;
     for (auto *Entry : Entries) {
-      SortedEntries.insert(Entry);
+      SortedEntries.push_back(Entry);
     }
     llvm::sort(SortedEntries,
                [&](const MachineBasicBlock *A, const MachineBasicBlock *B) {
