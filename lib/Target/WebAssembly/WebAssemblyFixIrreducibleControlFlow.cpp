@@ -7,31 +7,30 @@
 //===----------------------------------------------------------------------===//
 ///
 /// \file
-/// This file implements a pass that removes irreducible control flow. Irreducible
-/// control flow means multiple-entry loops, which this pass transforms to have a
-/// single entry.
+/// This file implements a pass that removes irreducible control flow.
+/// Irreducible control flow means multiple-entry loops, which this pass
+/// transforms to have a single entry.
 ///
 /// Note that LLVM has a generic pass that lowers irreducible control flow, but
 /// it linearizes control flow, turning diamonds into two triangles, which is
 /// both unnecessary and undesirable for WebAssembly.
 ///
 /// The big picture: We recursively process each "region",
-/// defined as a group of blocks with a single entry and no branches back to that entry.
-/// A region may be the entire function body, or the inner part of a loop, i.e.,
-/// the loop's body without branches back to the loop entry. In each region we fix
-/// up multi-entry loops by
-/// adding a new block that can dispatch to each of the loop entries, based on the
-/// value of a label "helper" variable, and we replace direct branches to the
-/// entries with assignments to the label variable and a branch to the dispatch
-/// block. Then the dispatch block is the single entry in the loop containing the
-/// previous multiple entries.
-/// After ensuring all the loops in a region are reducible, we recurse into them.
-/// The total time complexity of this pass is:
+/// defined as a group of blocks with a single entry and no branches back to
+/// that entry. A region may be the entire function body, or the inner part of a
+/// loop, i.e., the loop's body without branches back to the loop entry. In each
+/// region we fix up multi-entry loops by adding a new block that can dispatch
+/// to each of the loop entries, based on the value of a label "helper"
+/// variable, and we replace direct branches to the entries with assignments to
+/// the label variable and a branch to the dispatch block. Then the dispatch
+/// block is the single entry in the loop containing the previous multiple
+/// entries. After ensuring all the loops in a region are reducible, we recurse
+/// into them. The total time complexity of this pass is:
 ///   O(NumBlocks * NumNestedLoops * NumIrreducibleLoops +
 ///     NumLoops * NumLoops)
 ///
-/// This pass is similar to what the Relooper [1] does. Both identify looping code
-/// that requires multiple entries, and resolve it in a similar way (in
+/// This pass is similar to what the Relooper [1] does. Both identify looping
+/// code that requires multiple entries, and resolve it in a similar way (in
 /// Relooper terminology, we implement a Multiple shape in a Loop shape). Note
 /// also that like the Relooper, we implement a "minimal" intervention: we only
 /// use the "label" helper for the blocks we absolutely must and no others. We
@@ -81,7 +80,7 @@ using BlockSet = SmallPtrSet<MachineBasicBlock *, 4>;
 class ReachabilityGraph {
 public:
   ReachabilityGraph(MachineBasicBlock *Entry, const BlockSet &Blocks)
-    : Entry(Entry), Blocks(Blocks) {
+      : Entry(Entry), Blocks(Blocks) {
 #ifndef NDEBUG
     // The region must have a single entry.
     for (auto *MBB : Blocks) {
@@ -119,16 +118,14 @@ private:
   BlockSet Loopers, LoopEntries;
   DenseMap<MachineBasicBlock *, BlockSet> LoopEnterers;
 
-  bool inRegion(MachineBasicBlock *MBB) {
-    return Blocks.count(MBB);
-  }
+  bool inRegion(MachineBasicBlock *MBB) { return Blocks.count(MBB); }
 
   // Maps a block to all the other blocks it can reach.
   DenseMap<MachineBasicBlock *, BlockSet> Reachable;
 
   void calculate() {
-    // Reachability computation work list. Contains pairs of recent additions (A, B) where we just
-    // added a link A => B.
+    // Reachability computation work list. Contains pairs of recent additions
+    // (A, B) where we just added a link A => B.
     using BlockPair = std::pair<MachineBasicBlock *, MachineBasicBlock *>;
     SmallVector<BlockPair, 4> WorkList;
 
@@ -185,8 +182,8 @@ private:
 // list of blocks that enter the loop.
 class LoopBlocks {
 public:
-  LoopBlocks(MachineBasicBlock *Entry, const BlockSet &Enterers) :
-    Entry(Entry), Enterers(Enterers) {
+  LoopBlocks(MachineBasicBlock *Entry, const BlockSet &Enterers)
+      : Entry(Entry), Enterers(Enterers) {
     calculate();
   }
 
@@ -252,8 +249,8 @@ private:
 
       for (auto *LoopEntry : Graph.getLoopEntries()) {
         // Find mutual entries - other entries which can reach this one, and are
-        // reached by it. Such mutual entries must be in the same loop, and so indicate
-        // irreducible control flow.
+        // reached by it. Such mutual entries must be in the same loop, and so
+        // indicate irreducible control flow.
         BlockSet MutualLoopEntries;
         for (auto *OtherLoopEntry : Graph.getLoopEntries()) {
           if (OtherLoopEntry != LoopEntry &&
@@ -271,19 +268,20 @@ private:
           break;
         }
       }
-      // Only go on to actually process the inner loops when we are done removing
-      // irreducible control flow and changing the graph.
+      // Only go on to actually process the inner loops when we are done
+      // removing irreducible control flow and changing the graph.
       if (FoundIrreducibility) {
         continue;
       }
 
       for (auto *LoopEntry : Graph.getLoopEntries()) {
         LoopBlocks InnerBlocks(LoopEntry, Graph.getLoopEnterers(LoopEntry));
-        // Each of these calls to processRegion may change the graph, but are guaranteed not
-        // to interfere with each other. The only changes we make to the graph
-        // are to add blocks on the way to a loop entry. As the loops are disjoint,
-        // that means we may only alter branches exiting another loop,
-        // which are ignored when recursing into that other loop anyhow.
+        // Each of these calls to processRegion may change the graph, but are
+        // guaranteed not to interfere with each other. The only changes we make
+        // to the graph are to add blocks on the way to a loop entry. As the
+        // loops are disjoint, that means we may only alter branches exiting
+        // another loop, which are ignored when recursing into that other loop
+        // anyhow.
         processRegion(LoopEntry, InnerBlocks.getBlocks());
       }
 
@@ -295,7 +293,7 @@ private:
   // loop by creating a dispatch block for them, routing control flow using
   // a helper variable. Also updates Blocks with any new blocks created, so
   // that we properly track all the blocks in the region.
-  void makeSingleEntryLoop(BlockSet& Entries, BlockSet &Blocks) {
+  void makeSingleEntryLoop(BlockSet &Entries, BlockSet &Blocks) {
     assert(Entries.size() >= 2);
 
     // Sort the entries to ensure a deterministic build.
@@ -314,8 +312,8 @@ private:
     for (auto Block : SortedEntries)
       assert(Block->getNumber() != -1);
     if (SortedEntries.size() > 1) {
-      for (auto I = SortedEntries.begin(), E = SortedEntries.end() - 1;
-           I != E; ++I) {
+      for (auto I = SortedEntries.begin(), E = SortedEntries.end() - 1; I != E;
+           ++I) {
         auto ANum = (*I)->getNumber();
         auto BNum = (*(std::next(I)))->getNumber();
         assert(ANum != BNum);
@@ -355,9 +353,9 @@ private:
       Dispatch->addSuccessor(Entry);
     }
 
-    // Rewrite the problematic successors for every block that wants to reach the
-    // bad blocks. For simplicity, we just introduce a new block for every edge
-    // we need to rewrite. (Fancier things are possible.)
+    // Rewrite the problematic successors for every block that wants to reach
+    // the bad blocks. For simplicity, we just introduce a new block for every
+    // edge we need to rewrite. (Fancier things are possible.)
 
     BlockVector AllPreds;
     for (auto *Entry : SortedEntries) {
@@ -377,15 +375,16 @@ private:
 
         // This is a successor we need to rewrite.
         MachineBasicBlock *Split = MF.CreateMachineBasicBlock();
-        MF.insert(Pred->isLayoutSuccessor(Entry) ? MachineFunction::iterator(Entry)
-                                               : MF.end(),
+        MF.insert(Pred->isLayoutSuccessor(Entry)
+                      ? MachineFunction::iterator(Entry)
+                      : MF.end(),
                   Split);
         Blocks.insert(Split);
 
         // Set the jump table's register of the index of the block we wish to
         // jump to, and jump to the jump table.
-        BuildMI(*Split, Split->end(), DebugLoc(), TII.get(WebAssembly::CONST_I32),
-                Reg)
+        BuildMI(*Split, Split->end(), DebugLoc(),
+                TII.get(WebAssembly::CONST_I32), Reg)
             .addImm(Indices[Entry]);
         BuildMI(*Split, Split->end(), DebugLoc(), TII.get(WebAssembly::BR))
             .addMBB(Dispatch);
@@ -460,4 +459,3 @@ bool WebAssemblyFixIrreducibleControlFlow::runOnMachineFunction(
 
   return false;
 }
-
