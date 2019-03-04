@@ -172,7 +172,9 @@ private:
       for (auto *Pred : Looper->predecessors()) {
 // Looper != Entry, and so precessors must be in the loop, and so in the region.
 assert(inRegion(Pred)); // dupe of above
-        if (!Loopers.count(Pred)) {
+        // Pred can reach Looper. If Looper can reach Pred, it is in the loop;
+        // otherwise, it is a block that enters into the loop.
+        if (!canReach(Looper, Pred)) {
           LoopEntries.insert(Looper);
           LoopEnterers[Looper].insert(Pred);
         }
@@ -243,7 +245,6 @@ private:
   bool Changed = false;
 
   void processRegion(MachineBasicBlock *Entry, BlockSet &Blocks) {
-errs() << MF.getName() << " region of size " << Blocks.size() << '\n';
     // Remove irreducibility before processing child loops, which may take
     // multiple iterations.
     while (true) {
@@ -269,18 +270,14 @@ errs() << MF.getName() << " region of size " << Blocks.size() << '\n';
           AllLoopEntries.insert(LoopEntry);
           makeSingleEntryLoop(AllLoopEntries, Blocks);
           FoundIrreducibility = true;
-errs() << "   found irr!\n";
           break;
         }
       }
-errs() << "   out of innerloop\n";
       // Only go on to actually process the inner loops when we are done removing
       // irreducible control flow and changing the graph.
       if (FoundIrreducibility) {
-errs() << "   start over\n";
         continue;
       }
-errs() << "   now nice and reducible\n";
 
       for (auto *LoopEntry : Graph.getLoopEntries()) {
         LoopBlocks InnerBlocks(LoopEntry, Graph.getLoopEnterers(LoopEntry));
@@ -453,9 +450,7 @@ bool WebAssemblyFixIrreducibleControlFlow::runOnMachineFunction(
   LLVM_DEBUG(dbgs() << "********** Fixing Irreducible Control Flow **********\n"
                        "********** Function: "
                     << MF.getName() << '\n');
-errs() << "start on function " << MF.getName() << '\n';
   if (LLVM_UNLIKELY(LoopFixer(MF).run())) {
-errs() << " modded function " << MF.getName() << '\n';
     // We rewrote part of the function; recompute relevant things.
     MF.getRegInfo().invalidateLiveness();
     MF.RenumberBlocks();

@@ -217,3 +217,37 @@ return:                                           ; preds = %entry
   ret void
 }
 
+; Complex control flow without irreducibility. This requires we properly identify
+; the blocks entering each nested loop properly (in particular, even if they
+; are the entry to a parent loop).
+; CHECK-NOT: br_table
+define hidden void @ps_hints_apply() #0 {
+entry:
+  br label %psh
+
+psh:                                            ; preds = %entry
+  br i1 undef, label %for.cond, label %for.body
+
+for.body:                                       ; preds = %psh
+  br label %do.body
+
+do.body:                                        ; preds = %do.cond, %for.body
+  %cmp118 = icmp eq i32* undef, undef
+  br i1 %cmp118, label %Skip, label %do.cond
+
+do.cond:                                        ; preds = %do.body
+  br label %do.body
+
+for.cond:                                       ; preds = %Skip, %psh
+  br label %for.body39
+
+for.body39:                                     ; preds = %for.cond
+  br i1 undef, label %Skip, label %do.body45
+
+do.body45:                                      ; preds = %for.body39
+  unreachable
+
+Skip:                                           ; preds = %for.body39, %do.body
+  br label %for.cond
+}
+
