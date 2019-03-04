@@ -190,7 +190,7 @@ public:
     calculate();
   }
 
-  const BlockSet &getBlocks() { return Blocks; }
+  BlockSet &getBlocks() { return Blocks; }
 
 private:
   MachineBasicBlock *Entry;
@@ -242,10 +242,11 @@ private:
 
   bool Changed = false;
 
-  void processRegion(MachineBasicBlock *Entry, const BlockSet &Blocks) {
+  void processRegion(MachineBasicBlock *Entry, BlockSet &Blocks) {
+errs() << MF.getName() << " region of size " << Blocks.size() << '\n';
     // Remove irreducibility before processing child loops, which may take
     // multiple iterations.
-    do {
+    while (true) {
       ReachabilityGraph Graph(Entry, Blocks);
 
       bool FoundIrreducibility = false;
@@ -256,7 +257,8 @@ private:
         // irreducible control flow.
         BlockSet MutualLoopEntries;
         for (auto *OtherLoopEntry : Graph.getLoopEntries()) {
-          if (Graph.canReach(LoopEntry, OtherLoopEntry) &&
+          if (OtherLoopEntry != LoopEntry &&
+              Graph.canReach(LoopEntry, OtherLoopEntry) &&
               Graph.canReach(OtherLoopEntry, LoopEntry)) {
             MutualLoopEntries.insert(OtherLoopEntry);
           }
@@ -265,17 +267,20 @@ private:
         if (!MutualLoopEntries.empty()) {
           auto AllLoopEntries = std::move(MutualLoopEntries);
           AllLoopEntries.insert(LoopEntry);
-          makeSingleEntryLoop(AllLoopEntries);
+          makeSingleEntryLoop(AllLoopEntries, Blocks);
           FoundIrreducibility = true;
+errs() << "   found irr!\n";
           break;
         }
       }
-
+errs() << "   out of innerloop\n";
       // Only go on to actually process the inner loops when we are done removing
       // irreducible control flow and changing the graph.
       if (FoundIrreducibility) {
+errs() << "   start over\n";
         continue;
       }
+errs() << "   now nice and reducible\n";
 
       for (auto *LoopEntry : Graph.getLoopEntries()) {
         LoopBlocks InnerBlocks(LoopEntry, Graph.getLoopEnterers(LoopEntry));
@@ -286,13 +291,16 @@ private:
         // which are ignored when recursing into that other loop anyhow.
         processRegion(LoopEntry, InnerBlocks.getBlocks());
       }
-    } while (false);
+
+      return;
+    }
   }
 
   // Given a set of entries to a single loop, create a single entry for that
   // loop by creating a dispatch block for them, routing control flow using
-  // a helper variable.
-  void makeSingleEntryLoop(BlockSet& Entries) {
+  // a helper variable. Also updates Blocks with any new blocks created, so
+  // that we properly track all the blocks in the region.
+  void makeSingleEntryLoop(BlockSet& Entries, BlockSet &Blocks) {
     assert(Entries.size() >= 2);
 
     // Sort the entries to ensure a deterministic build.
@@ -323,6 +331,7 @@ private:
     // Create a dispatch block which will contain a jump table to the entries.
     MachineBasicBlock *Dispatch = MF.CreateMachineBasicBlock();
     MF.insert(MF.end(), Dispatch);
+    Blocks.insert(Dispatch);
 
     // Add the jump table.
     const auto &TII = *MF.getSubtarget<WebAssemblySubtarget>().getInstrInfo();
@@ -376,6 +385,7 @@ private:
         MF.insert(Pred->isLayoutSuccessor(Entry) ? MachineFunction::iterator(Entry)
                                                : MF.end(),
                   Split);
+        Blocks.insert(Split);
 
         // Set the jump table's register of the index of the block we wish to
         // jump to, and jump to the jump table.
@@ -443,8 +453,9 @@ bool WebAssemblyFixIrreducibleControlFlow::runOnMachineFunction(
   LLVM_DEBUG(dbgs() << "********** Fixing Irreducible Control Flow **********\n"
                        "********** Function: "
                     << MF.getName() << '\n');
-
+errs() << "start on function " << MF.getName() << '\n';
   if (LLVM_UNLIKELY(LoopFixer(MF).run())) {
+errs() << " modded function " << MF.getName() << '\n';
     // We rewrote part of the function; recompute relevant things.
     MF.getRegInfo().invalidateLiveness();
     MF.RenumberBlocks();
