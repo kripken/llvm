@@ -342,6 +342,7 @@ static void sortBlocks(MachineFunction &MF, const MachineLoopInfo &MLI,
   }
 if (!Entries.empty()) {
   errs() << "sad " << MF.getName() << '\n';
+  for (auto e : Entries) errs() << "  " << e.TheRegion->getHeader()->getNumber() << "." << e.TheRegion->getHeader()->getName() << '\n';
   MF.dump();
 }
   assert(Entries.empty() && "Active sort region list not finished");

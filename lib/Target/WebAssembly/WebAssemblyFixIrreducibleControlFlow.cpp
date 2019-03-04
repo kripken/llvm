@@ -49,8 +49,6 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#include <algorithm>
-
 #include "MCTargetDesc/WebAssemblyMCTargetDesc.h"
 #include "WebAssembly.h"
 #include "WebAssemblyMachineFunctionInfo.h"
@@ -152,6 +150,14 @@ private:
 bool LoopFixer::run() {
   Header = Loop ? Loop->getHeader() : &*MF.begin();
 
+if (MF.getName() == "ps_hints_apply") {
+  errs() << "run on " << Header->getNumber() << '.' << Header->getName() << '\n';
+    for (auto *Succ : Header->successors()) {
+      errs() << "  => " << Succ->getNumber() << '.' << Succ->getName() << '\n';
+    }
+
+}
+
   // Identify all the blocks in this loop scope.
   if (Loop) {
     for (auto *MBB : Loop->getBlocks()) {
@@ -251,7 +257,11 @@ bool LoopFixer::run() {
 
 if (MF.getName() == "ps_hints_apply") {
 errs() << "at ps_hints_apply\n";
-  for (auto* a : Entries) errs() << "entry " << a->getNumber() << "." << a->getName() << '\n';
+  for (auto* a : Entries) {
+    errs() << "entry " << a->getNumber() << "." << a->getName() << '\n';
+    for (auto* b : Reachable[a])
+      errs() << "  => " << b->getNumber() << "." << b->getName() << '\n';
+  }
 }
 
   while (Entries.size() > 1) {
@@ -273,6 +283,7 @@ if (MF.getName() == "ps_hints_apply") {
       if (!ReachableFromAnotherEntry) {
 if (MF.getName() == "ps_hints_apply") {
 errs() << "  removable " << Entry->getNumber() << "." << Entry->getName() << " : " << Entry->getFullName() << '\n';
+//MF.dump();
 }
         Removable.push_back(Entry);
       }
@@ -422,6 +433,7 @@ class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
   bool runIteration(MachineFunction &MF, MachineLoopInfo &MLI) {
     // Visit the function body, which is identified as a null loop.
     if (LoopFixer(MF, MLI, nullptr).run()) {
+if (MF.getName() == "ps_hints_apply") errs() << "main\n";
       return true;
     }
 
