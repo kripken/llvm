@@ -456,6 +456,219 @@ StringRef MachineFunction::getName() const {
   return getFunction().getName();
 }
 
+
+
+
+/////////////////////////////////////
+namespace WakaWaka {
+
+using BlockVector = SmallVector<MachineBasicBlock *, 4>;
+using BlockSet = SmallPtrSet<MachineBasicBlock *, 4>;
+
+// Calculates reachability in a region. Ignores branches to blocks outside of
+// the region, and ignores branches to the region entry (for the case where
+// the region is the inner part of a loop).
+class ReachabilityGraph {
+public:
+  ReachabilityGraph(MachineBasicBlock *Entry, const BlockSet &Blocks)
+      : Entry(Entry), Blocks(Blocks) {
+#ifndef NDEBUG
+    // The region must have a single entry.
+    for (auto *MBB : Blocks) {
+      if (MBB != Entry) {
+        for (auto *Pred : MBB->predecessors()) {
+          assert(inRegion(Pred));
+        }
+      }
+    }
+#endif
+    calculate();
+  }
+
+  bool canReach(MachineBasicBlock *From, MachineBasicBlock *To) {
+    assert(inRegion(From) && inRegion(To));
+    return Reachable[From].count(To);
+  }
+
+  // Get all blocks that are in a loop.
+  const BlockSet &getLoopers() { return Loopers; }
+
+  // Get all blocks that are loop entries.
+  const BlockSet &getLoopEntries() { return LoopEntries; }
+
+  // Get all blocks that enter a particular loop from outside.
+  const BlockSet &getLoopEnterers(MachineBasicBlock *LoopEntry) {
+    assert(inRegion(LoopEntry));
+    return LoopEnterers[LoopEntry];
+  }
+
+private:
+  MachineBasicBlock *Entry;
+  const BlockSet &Blocks;
+
+  BlockSet Loopers, LoopEntries;
+  DenseMap<MachineBasicBlock *, BlockSet> LoopEnterers;
+
+  bool inRegion(MachineBasicBlock *MBB) { return Blocks.count(MBB); }
+
+  // Maps a block to all the other blocks it can reach.
+  DenseMap<MachineBasicBlock *, BlockSet> Reachable;
+
+  void calculate() {
+    // Reachability computation work list. Contains pairs of recent additions
+    // (A, B) where we just added a link A => B.
+    using BlockPair = std::pair<MachineBasicBlock *, MachineBasicBlock *>;
+    SmallVector<BlockPair, 4> WorkList;
+
+    // Add all relevant direct branches.
+    for (auto *MBB : Blocks) {
+      for (auto *Succ : MBB->successors()) {
+        if (Succ != Entry && inRegion(Succ)) {
+          Reachable[MBB].insert(Succ);
+          WorkList.emplace_back(MBB, Succ);
+        }
+      }
+    }
+
+    while (!WorkList.empty()) {
+      MachineBasicBlock *MBB;
+      MachineBasicBlock *Succ;
+      std::tie(MBB, Succ) = WorkList.pop_back_val();
+      assert(inRegion(MBB) && Succ != Entry && inRegion(Succ));
+      if (MBB != Entry) {
+        // We recently added MBB => Succ, and that means we may have enabled
+        // Pred => MBB => Succ.
+        for (auto *Pred : MBB->predecessors()) {
+          if (Reachable[Pred].insert(Succ).second) {
+            WorkList.emplace_back(Pred, Succ);
+          }
+        }
+      }
+    }
+
+    // Blocks that can return to themselves are in a loop.
+    for (auto *MBB : Blocks) {
+      if (canReach(MBB, MBB)) {
+        Loopers.insert(MBB);
+      }
+    }
+    assert(!Loopers.count(Entry));
+
+    // Find the loop entries - loopers reachable from non-loopers - and their
+    // loop enterers.
+    for (auto *Looper : Loopers) {
+      for (auto *Pred : Looper->predecessors()) {
+        // Pred can reach Looper. If Looper can reach Pred, it is in the loop;
+        // otherwise, it is a block that enters into the loop.
+        if (!canReach(Looper, Pred)) {
+          LoopEntries.insert(Looper);
+          LoopEnterers[Looper].insert(Pred);
+        }
+      }
+    }
+  }
+};
+
+// Finds the blocks in a single-entry loop, given the loop entry and the
+// list of blocks that enter the loop.
+class LoopBlocks {
+public:
+  LoopBlocks(MachineBasicBlock *Entry, const BlockSet &Enterers)
+      : Entry(Entry), Enterers(Enterers) {
+    calculate();
+  }
+
+  BlockSet &getBlocks() { return Blocks; }
+
+private:
+  MachineBasicBlock *Entry;
+  const BlockSet &Enterers;
+
+  BlockSet Blocks;
+
+  void calculate() {
+    // Going backwards from the loop entry, if we ignore the blocks entering
+    // from outside, we will traverse all the blocks in the loop.
+    BlockSet WorkList;
+    Blocks.insert(Entry);
+    for (auto *Pred : Entry->predecessors()) {
+      if (!Enterers.count(Pred)) {
+        WorkList.insert(Pred);
+      }
+    }
+
+    while (!WorkList.empty()) {
+      auto *MBB = *WorkList.begin();
+      WorkList.erase(MBB);
+      assert(!Enterers.count(MBB));
+      if (Blocks.insert(MBB).second) {
+        for (auto *Pred : MBB->predecessors()) {
+          WorkList.insert(Pred);
+        }
+      }
+    }
+  }
+};
+
+class LoopScanner {
+public:
+  LoopScanner(const MachineFunction &MF, raw_ostream &OS) : MF(MF), OS(OS) {}
+
+  // Run on the given input.
+  void run() {
+    // Start the recursive process on the entire function body.
+    BlockSet AllBlocks;
+    for (auto &MBB : MF) {
+      AllBlocks.insert(const_cast<MachineBasicBlock*>(&MBB));
+    }
+    processRegion(const_cast<MachineBasicBlock*>(&*MF.begin()), AllBlocks);
+  }
+
+private:
+  const MachineFunction &MF;
+  raw_ostream &OS;
+
+  void processRegion(MachineBasicBlock *Entry, BlockSet &Blocks) {
+    ReachabilityGraph Graph(Entry, Blocks);
+
+    for (auto *LoopEntry : Graph.getLoopEntries()) {
+      // Find mutual entries - other entries which can reach this one, and are
+      // reached by it. Such mutual entries must be in the same loop, and so
+      // indicate irreducible control flow.
+      BlockSet MutualLoopEntries;
+      for (auto *OtherLoopEntry : Graph.getLoopEntries()) {
+        if (OtherLoopEntry != LoopEntry &&
+            Graph.canReach(LoopEntry, OtherLoopEntry) &&
+            Graph.canReach(OtherLoopEntry, LoopEntry)) {
+          MutualLoopEntries.insert(OtherLoopEntry);
+        }
+      }
+
+      if (!MutualLoopEntries.empty()) {
+        OS << "waka irredubvible " << MF.getName() << '\n';
+        return;
+      }
+    }
+
+    for (auto *LoopEntry : Graph.getLoopEntries()) {
+      LoopBlocks InnerBlocks(LoopEntry, Graph.getLoopEnterers(LoopEntry));
+      // Each of these calls to processRegion may change the graph, but are
+      // guaranteed not to interfere with each other. The only changes we make
+      // to the graph are to add blocks on the way to a loop entry. As the
+      // loops are disjoint, that means we may only alter branches exiting
+      // another loop, which are ignored when recursing into that other loop
+      // anyhow.
+      processRegion(LoopEntry, InnerBlocks.getBlocks());
+    }
+  }
+};
+
+} // end WakaWaka
+/////////////////////////////////////
+
+
+
+
 void MachineFunction::print(raw_ostream &OS, const SlotIndexes *Indexes) const {
   OS << "# Machine code for function " << getName() << ": ";
   getProperties().print(OS);
@@ -493,6 +706,10 @@ void MachineFunction::print(raw_ostream &OS, const SlotIndexes *Indexes) const {
     // If we print the whole function, print it at its most verbose level.
     BB.print(OS, MST, Indexes, /*IsStandalone=*/true);
   }
+
+  /////////////////////////////////////
+  WakaWaka::LoopScanner(*this, OS).run();
+  /////////////////////////////////////
 
   OS << "\n# End machine code for function " << getName() << ".\n\n";
 }
