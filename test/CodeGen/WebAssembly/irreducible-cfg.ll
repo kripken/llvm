@@ -221,7 +221,7 @@ return:                                           ; preds = %entry
 ; the blocks entering each nested loop properly (in particular, even if they
 ; are the entry to a parent loop).
 ; CHECK-NOT: br_table
-define hidden void @ps_hints_apply() #0 {
+define hidden void @ps_hints_apply() {
 entry:
   br label %psh
 
