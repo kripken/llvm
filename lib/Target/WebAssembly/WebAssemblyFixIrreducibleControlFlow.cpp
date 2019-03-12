@@ -99,7 +99,8 @@ public:
     return Reachable[From].count(To);
   }
 
-  // Get all blocks that are in a loop.
+  // "Loopers" are blocks that are in a loop. We detect these by finding blocks
+  // that can reach themselves.
   const BlockSet &getLoopers() { return Loopers; }
 
   // Get all blocks that are loop entries.
@@ -140,8 +141,7 @@ private:
     }
 
     while (!WorkList.empty()) {
-      MachineBasicBlock *MBB;
-      MachineBasicBlock *Succ;
+      MachineBasicBlock *MBB, *Succ;
       std::tie(MBB, Succ) = WorkList.pop_back_val();
       assert(inRegion(MBB) && Succ != Entry && inRegion(Succ));
       if (MBB != Entry) {
@@ -163,8 +163,8 @@ private:
     }
     assert(!Loopers.count(Entry));
 
-    // Find the loop entries - loopers reachable from non-loopers - and their
-    // loop enterers.
+    // Find the loop entries - loopers reachable from blocks not in that loop -
+    // and those outside blocks that reach them, the "loop enterers".
     for (auto *Looper : Loopers) {
       for (auto *Pred : Looper->predecessors()) {
         // Pred can reach Looper. If Looper can reach Pred, it is in the loop;
