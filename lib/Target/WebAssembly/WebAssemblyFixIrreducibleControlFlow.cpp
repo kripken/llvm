@@ -226,7 +226,8 @@ class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
 
   bool runOnMachineFunction(MachineFunction &MF) override;
 
-  bool processRegion(MachineBasicBlock *Entry, BlockSet &Blocks, MachineFunction& MF) {
+  bool processRegion(MachineBasicBlock *Entry, BlockSet &Blocks,
+                     MachineFunction &MF) {
     bool Changed = false;
 
     // Remove irreducibility before processing child loops, which may take
@@ -304,7 +305,8 @@ class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
   // loop by creating a dispatch block for them, routing control flow using
   // a helper variable. Also updates Blocks with any new blocks created, so
   // that we properly track all the blocks in the region.
-  void makeSingleEntryLoop(BlockSet &Entries, BlockSet &Blocks, MachineFunction& MF) {
+  void makeSingleEntryLoop(BlockSet &Entries, BlockSet &Blocks,
+                           MachineFunction &MF) {
     assert(Entries.size() >= 2);
 
     // Sort the entries to ensure a deterministic build.
