@@ -237,9 +237,24 @@ class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
       bool FoundIrreducibility = false;
 
       for (auto *LoopEntry : Graph.getLoopEntries()) {
-        // Find mutual entries - other entries which can reach this one, and are
-        // reached by it. Such mutual entries must be in the same loop, and so
-        // indicate irreducible control flow.
+        // Find mutual entries - other entries which can reach this one, and
+        // are reached by it. Such mutual entries must be in the same loop, and
+        // so indicate irreducible control flow.
+        //
+        // Note that irreducibility may involve inner loops, e.g. imagine A
+        // starts one loop, and it has B inside it which starts an inner loop.
+        // If we add a branch from all the way on the outside to B, then in a
+        // sense B is no longer an "inner" loop, semantically speaking. We will
+        // fix that irreducibility by adding a block that dispatches to either
+        // either A or B, so B will no longer be an inner loop in our output.
+        // (A fancier approach might try to keep it as such.)
+        //
+        // Note that we still need to recurse into inner loops later, to handle
+        // the case where the irreducibility is entirely nested - we would not
+        // be able to identify that at this point, since the enclosing loop is
+        // a group of blocks all of whom can reach each other. (We'll see the
+        // irreducibility after removing branches to the top of that enclosing
+        // loop.)
         BlockSet MutualLoopEntries;
         for (auto *OtherLoopEntry : Graph.getLoopEntries()) {
           if (OtherLoopEntry != LoopEntry &&
@@ -259,7 +274,11 @@ class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
         }
       }
       // Only go on to actually process the inner loops when we are done
-      // removing irreducible control flow and changing the graph.
+      // removing irreducible control flow and changing the graph. Modifying
+      // the graph as we go is possible, and that might let us avoid looking at
+      // the already-fixed loops again if we are careful, but all that is
+      // complex and bug-prone. Since irreducible loops are rare, just starting
+      // another iteration is best.
       if (FoundIrreducibility) {
         continue;
       }
