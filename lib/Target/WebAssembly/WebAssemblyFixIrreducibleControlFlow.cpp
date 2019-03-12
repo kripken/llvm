@@ -308,10 +308,7 @@ class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
     assert(Entries.size() >= 2);
 
     // Sort the entries to ensure a deterministic build.
-    BlockVector SortedEntries;
-    for (auto *Entry : Entries) {
-      SortedEntries.push_back(Entry);
-    }
+    BlockVector SortedEntries(Entries.begin(), Entries.end());
     llvm::sort(SortedEntries,
                [&](const MachineBasicBlock *A, const MachineBasicBlock *B) {
                  auto ANum = A->getNumber();
