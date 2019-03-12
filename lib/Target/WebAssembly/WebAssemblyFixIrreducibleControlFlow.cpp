@@ -219,27 +219,16 @@ private:
   }
 };
 
-class LoopFixer {
-public:
-  LoopFixer(MachineFunction &MF) : MF(MF) {}
-
-  // Run on the given input. Returns whether changes were made.
-  bool run() {
-    // Start the recursive process on the entire function body.
-    BlockSet AllBlocks;
-    for (auto &MBB : MF) {
-      AllBlocks.insert(&MBB);
-    }
-    processRegion(&*MF.begin(), AllBlocks);
-    return Changed;
+class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
+  StringRef getPassName() const override {
+    return "WebAssembly Fix Irreducible Control Flow";
   }
 
-private:
-  MachineFunction &MF;
+  bool runOnMachineFunction(MachineFunction &MF) override;
 
-  bool Changed = false;
+  bool processRegion(MachineBasicBlock *Entry, BlockSet &Blocks) {
+    bool Changed = false;
 
-  void processRegion(MachineBasicBlock *Entry, BlockSet &Blocks) {
     // Remove irreducibility before processing child loops, which may take
     // multiple iterations.
     while (true) {
@@ -265,6 +254,7 @@ private:
           AllLoopEntries.insert(LoopEntry);
           makeSingleEntryLoop(AllLoopEntries, Blocks);
           FoundIrreducibility = true;
+          Changed = true;
           break;
         }
       }
@@ -282,10 +272,12 @@ private:
         // loops are disjoint, that means we may only alter branches exiting
         // another loop, which are ignored when recursing into that other loop
         // anyhow.
-        processRegion(LoopEntry, InnerBlocks.getBlocks());
+        if (processRegion(LoopEntry, InnerBlocks.getBlocks())) {
+          Changed = true;
+        }
       }
 
-      return;
+      return Changed;
     }
   }
 
@@ -404,17 +396,7 @@ private:
     MIB.addMBB(MIB.getInstr()
                    ->getOperand(MIB.getInstr()->getNumExplicitOperands() - 1)
                    .getMBB());
-
-    Changed = true;
   }
-};
-
-class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
-  StringRef getPassName() const override {
-    return "WebAssembly Fix Irreducible Control Flow";
-  }
-
-  bool runOnMachineFunction(MachineFunction &MF) override;
 
 public:
   static char ID; // Pass identification, replacement for typeid
@@ -436,7 +418,14 @@ bool WebAssemblyFixIrreducibleControlFlow::runOnMachineFunction(
   LLVM_DEBUG(dbgs() << "********** Fixing Irreducible Control Flow **********\n"
                        "********** Function: "
                     << MF.getName() << '\n');
-  if (LLVM_UNLIKELY(LoopFixer(MF).run())) {
+
+  // Start the recursive process on the entire function body.
+  BlockSet AllBlocks;
+  for (auto &MBB : MF) {
+    AllBlocks.insert(&MBB);
+  }
+
+  if (LLVM_UNLIKELY(processRegion(&*MF.begin(), AllBlocks)) {
     // We rewrote part of the function; recompute relevant things.
     MF.getRegInfo().invalidateLiveness();
     MF.RenumberBlocks();
