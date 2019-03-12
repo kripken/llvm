@@ -226,7 +226,7 @@ class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
 
   bool runOnMachineFunction(MachineFunction &MF) override;
 
-  bool processRegion(MachineBasicBlock *Entry, BlockSet &Blocks) {
+  bool processRegion(MachineBasicBlock *Entry, BlockSet &Blocks, MachineFunction& MF) {
     bool Changed = false;
 
     // Remove irreducibility before processing child loops, which may take
@@ -252,7 +252,7 @@ class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
         if (!MutualLoopEntries.empty()) {
           auto AllLoopEntries = std::move(MutualLoopEntries);
           AllLoopEntries.insert(LoopEntry);
-          makeSingleEntryLoop(AllLoopEntries, Blocks);
+          makeSingleEntryLoop(AllLoopEntries, Blocks, MF);
           FoundIrreducibility = true;
           Changed = true;
           break;
@@ -272,7 +272,7 @@ class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
         // loops are disjoint, that means we may only alter branches exiting
         // another loop, which are ignored when recursing into that other loop
         // anyhow.
-        if (processRegion(LoopEntry, InnerBlocks.getBlocks())) {
+        if (processRegion(LoopEntry, InnerBlocks.getBlocks(), MF)) {
           Changed = true;
         }
       }
@@ -285,7 +285,7 @@ class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
   // loop by creating a dispatch block for them, routing control flow using
   // a helper variable. Also updates Blocks with any new blocks created, so
   // that we properly track all the blocks in the region.
-  void makeSingleEntryLoop(BlockSet &Entries, BlockSet &Blocks) {
+  void makeSingleEntryLoop(BlockSet &Entries, BlockSet &Blocks, MachineFunction& MF) {
     assert(Entries.size() >= 2);
 
     // Sort the entries to ensure a deterministic build.
@@ -425,7 +425,7 @@ bool WebAssemblyFixIrreducibleControlFlow::runOnMachineFunction(
     AllBlocks.insert(&MBB);
   }
 
-  if (LLVM_UNLIKELY(processRegion(&*MF.begin(), AllBlocks)) {
+  if (LLVM_UNLIKELY(processRegion(&*MF.begin(), AllBlocks, MF))) {
     // We rewrote part of the function; recompute relevant things.
     MF.getRegInfo().invalidateLiveness();
     MF.RenumberBlocks();
