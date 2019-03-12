@@ -350,9 +350,7 @@ class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
     DenseMap<MachineBasicBlock *, unsigned> Indices;
     for (auto *Entry : SortedEntries) {
       auto Pair = Indices.insert(std::make_pair(Entry, 0));
-      if (!Pair.second) {
-        continue;
-      }
+      assert(Pair.second);
 
       unsigned Index = MIB.getInstr()->getNumExplicitOperands() - 1;
       Pair.first->second = Index;
