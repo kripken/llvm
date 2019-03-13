@@ -198,21 +198,25 @@ private:
   void calculate() {
     // Going backwards from the loop entry, if we ignore the blocks entering
     // from outside, we will traverse all the blocks in the loop.
-    BlockSet WorkList;
+    BlockVector WorkList;
+    BlockSet AddedToWorkList;
     Blocks.insert(Entry);
     for (auto *Pred : Entry->predecessors()) {
       if (!Enterers.count(Pred)) {
-        WorkList.insert(Pred);
+        WorkList.push_back(Pred);
+        AddedToWorkList.insert(Pred);
       }
     }
 
     while (!WorkList.empty()) {
-      auto *MBB = *WorkList.begin();
-      WorkList.erase(MBB);
+      auto *MBB = WorkList.pop_back_val();
       assert(!Enterers.count(MBB));
       if (Blocks.insert(MBB).second) {
         for (auto *Pred : MBB->predecessors()) {
-          WorkList.insert(Pred);
+          if (!AddedToWorkList.count(Pred)) {
+            WorkList.push_back(Pred);
+            AddedToWorkList.insert(Pred);
+          }
         }
       }
     }
