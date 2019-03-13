@@ -253,9 +253,10 @@ bool WebAssemblyFixIrreducibleControlFlow::processRegion(MachineBasicBlock *Entr
     bool FoundIrreducibility = false;
 
     for (auto *LoopEntry : Graph.getLoopEntries()) {
-      // Find mutual entries - other entries which can reach this one, and
-      // are reached by it. Such mutual entries must be in the same loop, and
-      // so indicate irreducible control flow.
+      // Find mutual entries - all entries which can reach this one, and
+      // are reached by it (that always includes LoopEntry itself). All mutual
+      // entries must be in the same loop, so if we have more than one, then we
+      // have irreducible control flow.
       //
       // Note that irreducibility may involve inner loops, e.g. imagine A
       // starts one loop, and it has B inside it which starts an inner loop.
@@ -272,6 +273,7 @@ bool WebAssemblyFixIrreducibleControlFlow::processRegion(MachineBasicBlock *Entr
       // irreducibility after removing branches to the top of that enclosing
       // loop.)
       BlockSet MutualLoopEntries;
+      MutualLoopEntries.insert(LoopEntry);
       for (auto *OtherLoopEntry : Graph.getLoopEntries()) {
         if (OtherLoopEntry != LoopEntry &&
             Graph.canReach(LoopEntry, OtherLoopEntry) &&
@@ -280,10 +282,8 @@ bool WebAssemblyFixIrreducibleControlFlow::processRegion(MachineBasicBlock *Entr
         }
       }
 
-      if (!MutualLoopEntries.empty()) {
-        auto AllLoopEntries = std::move(MutualLoopEntries);
-        AllLoopEntries.insert(LoopEntry);
-        makeSingleEntryLoop(AllLoopEntries, Blocks, MF);
+      if (MutualLoopEntries.size() > 1) {
+        makeSingleEntryLoop(MutualLoopEntries, Blocks, MF);
         FoundIrreducibility = true;
         Changed = true;
         break;
