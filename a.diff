@@ -1,4 +1,4 @@
-WebAssembly: Irreducible control flow rewrite
+[WebAssembly] Irreducible control flow rewrite
 
   Rewrite WebAssemblyFixIrreducibleControlFlow to a simpler and cleaner design,
   which directly computes reachability and other properties itself. This avoids
