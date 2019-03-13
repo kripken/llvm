@@ -231,197 +231,203 @@ class WebAssemblyFixIrreducibleControlFlow final : public MachineFunctionPass {
   bool runOnMachineFunction(MachineFunction &MF) override;
 
   bool processRegion(MachineBasicBlock *Entry, BlockSet &Blocks,
-                     MachineFunction &MF) {
-    bool Changed = false;
+                     MachineFunction &MF);
 
-    // Remove irreducibility before processing child loops, which may take
-    // multiple iterations.
-    while (true) {
-      ReachabilityGraph Graph(Entry, Blocks);
-
-      bool FoundIrreducibility = false;
-
-      for (auto *LoopEntry : Graph.getLoopEntries()) {
-        // Find mutual entries - other entries which can reach this one, and
-        // are reached by it. Such mutual entries must be in the same loop, and
-        // so indicate irreducible control flow.
-        //
-        // Note that irreducibility may involve inner loops, e.g. imagine A
-        // starts one loop, and it has B inside it which starts an inner loop.
-        // If we add a branch from all the way on the outside to B, then in a
-        // sense B is no longer an "inner" loop, semantically speaking. We will
-        // fix that irreducibility by adding a block that dispatches to either
-        // either A or B, so B will no longer be an inner loop in our output.
-        // (A fancier approach might try to keep it as such.)
-        //
-        // Note that we still need to recurse into inner loops later, to handle
-        // the case where the irreducibility is entirely nested - we would not
-        // be able to identify that at this point, since the enclosing loop is
-        // a group of blocks all of whom can reach each other. (We'll see the
-        // irreducibility after removing branches to the top of that enclosing
-        // loop.)
-        BlockSet MutualLoopEntries;
-        for (auto *OtherLoopEntry : Graph.getLoopEntries()) {
-          if (OtherLoopEntry != LoopEntry &&
-              Graph.canReach(LoopEntry, OtherLoopEntry) &&
-              Graph.canReach(OtherLoopEntry, LoopEntry)) {
-            MutualLoopEntries.insert(OtherLoopEntry);
-          }
-        }
-
-        if (!MutualLoopEntries.empty()) {
-          auto AllLoopEntries = std::move(MutualLoopEntries);
-          AllLoopEntries.insert(LoopEntry);
-          makeSingleEntryLoop(AllLoopEntries, Blocks, MF);
-          FoundIrreducibility = true;
-          Changed = true;
-          break;
-        }
-      }
-      // Only go on to actually process the inner loops when we are done
-      // removing irreducible control flow and changing the graph. Modifying
-      // the graph as we go is possible, and that might let us avoid looking at
-      // the already-fixed loops again if we are careful, but all that is
-      // complex and bug-prone. Since irreducible loops are rare, just starting
-      // another iteration is best.
-      if (FoundIrreducibility) {
-        continue;
-      }
-
-      for (auto *LoopEntry : Graph.getLoopEntries()) {
-        LoopBlocks InnerBlocks(LoopEntry, Graph.getLoopEnterers(LoopEntry));
-        // Each of these calls to processRegion may change the graph, but are
-        // guaranteed not to interfere with each other. The only changes we make
-        // to the graph are to add blocks on the way to a loop entry. As the
-        // loops are disjoint, that means we may only alter branches exiting
-        // another loop, which are ignored when recursing into that other loop
-        // anyhow.
-        if (processRegion(LoopEntry, InnerBlocks.getBlocks(), MF)) {
-          Changed = true;
-        }
-      }
-
-      return Changed;
-    }
-  }
-
-  // Given a set of entries to a single loop, create a single entry for that
-  // loop by creating a dispatch block for them, routing control flow using
-  // a helper variable. Also updates Blocks with any new blocks created, so
-  // that we properly track all the blocks in the region.
   void makeSingleEntryLoop(BlockSet &Entries, BlockSet &Blocks,
-                           MachineFunction &MF) {
-    assert(Entries.size() >= 2);
-
-    // Sort the entries to ensure a deterministic build.
-    BlockVector SortedEntries(Entries.begin(), Entries.end());
-    llvm::sort(SortedEntries,
-               [&](const MachineBasicBlock *A, const MachineBasicBlock *B) {
-                 auto ANum = A->getNumber();
-                 auto BNum = B->getNumber();
-                 return ANum < BNum;
-               });
-
-#ifndef NDEBUG
-    for (auto Block : SortedEntries)
-      assert(Block->getNumber() != -1);
-    if (SortedEntries.size() > 1) {
-      for (auto I = SortedEntries.begin(), E = SortedEntries.end() - 1; I != E;
-           ++I) {
-        auto ANum = (*I)->getNumber();
-        auto BNum = (*(std::next(I)))->getNumber();
-        assert(ANum != BNum);
-      }
-    }
-#endif
-
-    // Create a dispatch block which will contain a jump table to the entries.
-    MachineBasicBlock *Dispatch = MF.CreateMachineBasicBlock();
-    MF.insert(MF.end(), Dispatch);
-    Blocks.insert(Dispatch);
-
-    // Add the jump table.
-    const auto &TII = *MF.getSubtarget<WebAssemblySubtarget>().getInstrInfo();
-    MachineInstrBuilder MIB = BuildMI(*Dispatch, Dispatch->end(), DebugLoc(),
-                                      TII.get(WebAssembly::BR_TABLE_I32));
-
-    // Add the register which will be used to tell the jump table which block to
-    // jump to.
-    MachineRegisterInfo &MRI = MF.getRegInfo();
-    unsigned Reg = MRI.createVirtualRegister(&WebAssembly::I32RegClass);
-    MIB.addReg(Reg);
-
-    // Compute the indices in the superheader, one for each bad block, and
-    // add them as successors.
-    DenseMap<MachineBasicBlock *, unsigned> Indices;
-    for (auto *Entry : SortedEntries) {
-      auto Pair = Indices.insert(std::make_pair(Entry, 0));
-      assert(Pair.second);
-
-      unsigned Index = MIB.getInstr()->getNumExplicitOperands() - 1;
-      Pair.first->second = Index;
-
-      MIB.addMBB(Entry);
-      Dispatch->addSuccessor(Entry);
-    }
-
-    // Rewrite the problematic successors for every block that wants to reach
-    // the bad blocks. For simplicity, we just introduce a new block for every
-    // edge we need to rewrite. (Fancier things are possible.)
-
-    BlockVector AllPreds;
-    for (auto *Entry : SortedEntries) {
-      for (auto *Pred : Entry->predecessors()) {
-        if (Pred != Dispatch) {
-          AllPreds.push_back(Pred);
-        }
-      }
-    }
-
-    for (MachineBasicBlock *Pred : AllPreds) {
-      DenseMap<MachineBasicBlock *, MachineBasicBlock *> Map;
-      for (auto *Entry : Pred->successors()) {
-        if (!Entries.count(Entry)) {
-          continue;
-        }
-
-        // This is a successor we need to rewrite.
-        MachineBasicBlock *Split = MF.CreateMachineBasicBlock();
-        MF.insert(Pred->isLayoutSuccessor(Entry)
-                      ? MachineFunction::iterator(Entry)
-                      : MF.end(),
-                  Split);
-        Blocks.insert(Split);
-
-        // Set the jump table's register of the index of the block we wish to
-        // jump to, and jump to the jump table.
-        BuildMI(*Split, Split->end(), DebugLoc(),
-                TII.get(WebAssembly::CONST_I32), Reg)
-            .addImm(Indices[Entry]);
-        BuildMI(*Split, Split->end(), DebugLoc(), TII.get(WebAssembly::BR))
-            .addMBB(Dispatch);
-        Split->addSuccessor(Dispatch);
-        Map[Entry] = Split;
-      }
-      // Remap the terminator operands and the successor list.
-      for (MachineInstr &Term : Pred->terminators())
-        for (auto &Op : Term.explicit_uses())
-          if (Op.isMBB() && Indices.count(Op.getMBB()))
-            Op.setMBB(Map[Op.getMBB()]);
-      for (auto Rewrite : Map)
-        Pred->replaceSuccessor(Rewrite.first, Rewrite.second);
-    }
-
-    // Create a fake default label, because br_table requires one.
-    MIB.addMBB(MIB.getInstr()
-                   ->getOperand(MIB.getInstr()->getNumExplicitOperands() - 1)
-                   .getMBB());
-  }
+                           MachineFunction &MF);
 
 public:
   static char ID; // Pass identification, replacement for typeid
   WebAssemblyFixIrreducibleControlFlow() : MachineFunctionPass(ID) {}
 };
+
+bool WebAssemblyFixIrreducibleControlFlow::processRegion(MachineBasicBlock *Entry, BlockSet &Blocks,
+                   MachineFunction &MF) {
+  bool Changed = false;
+
+  // Remove irreducibility before processing child loops, which may take
+  // multiple iterations.
+  while (true) {
+    ReachabilityGraph Graph(Entry, Blocks);
+
+    bool FoundIrreducibility = false;
+
+    for (auto *LoopEntry : Graph.getLoopEntries()) {
+      // Find mutual entries - other entries which can reach this one, and
+      // are reached by it. Such mutual entries must be in the same loop, and
+      // so indicate irreducible control flow.
+      //
+      // Note that irreducibility may involve inner loops, e.g. imagine A
+      // starts one loop, and it has B inside it which starts an inner loop.
+      // If we add a branch from all the way on the outside to B, then in a
+      // sense B is no longer an "inner" loop, semantically speaking. We will
+      // fix that irreducibility by adding a block that dispatches to either
+      // either A or B, so B will no longer be an inner loop in our output.
+      // (A fancier approach might try to keep it as such.)
+      //
+      // Note that we still need to recurse into inner loops later, to handle
+      // the case where the irreducibility is entirely nested - we would not
+      // be able to identify that at this point, since the enclosing loop is
+      // a group of blocks all of whom can reach each other. (We'll see the
+      // irreducibility after removing branches to the top of that enclosing
+      // loop.)
+      BlockSet MutualLoopEntries;
+      for (auto *OtherLoopEntry : Graph.getLoopEntries()) {
+        if (OtherLoopEntry != LoopEntry &&
+            Graph.canReach(LoopEntry, OtherLoopEntry) &&
+            Graph.canReach(OtherLoopEntry, LoopEntry)) {
+          MutualLoopEntries.insert(OtherLoopEntry);
+        }
+      }
+
+      if (!MutualLoopEntries.empty()) {
+        auto AllLoopEntries = std::move(MutualLoopEntries);
+        AllLoopEntries.insert(LoopEntry);
+        makeSingleEntryLoop(AllLoopEntries, Blocks, MF);
+        FoundIrreducibility = true;
+        Changed = true;
+        break;
+      }
+    }
+    // Only go on to actually process the inner loops when we are done
+    // removing irreducible control flow and changing the graph. Modifying
+    // the graph as we go is possible, and that might let us avoid looking at
+    // the already-fixed loops again if we are careful, but all that is
+    // complex and bug-prone. Since irreducible loops are rare, just starting
+    // another iteration is best.
+    if (FoundIrreducibility) {
+      continue;
+    }
+
+    for (auto *LoopEntry : Graph.getLoopEntries()) {
+      LoopBlocks InnerBlocks(LoopEntry, Graph.getLoopEnterers(LoopEntry));
+      // Each of these calls to processRegion may change the graph, but are
+      // guaranteed not to interfere with each other. The only changes we make
+      // to the graph are to add blocks on the way to a loop entry. As the
+      // loops are disjoint, that means we may only alter branches exiting
+      // another loop, which are ignored when recursing into that other loop
+      // anyhow.
+      if (processRegion(LoopEntry, InnerBlocks.getBlocks(), MF)) {
+        Changed = true;
+      }
+    }
+
+    return Changed;
+  }
+}
+
+// Given a set of entries to a single loop, create a single entry for that
+// loop by creating a dispatch block for them, routing control flow using
+// a helper variable. Also updates Blocks with any new blocks created, so
+// that we properly track all the blocks in the region.
+void WebAssemblyFixIrreducibleControlFlow::makeSingleEntryLoop(BlockSet &Entries, BlockSet &Blocks,
+                         MachineFunction &MF) {
+  assert(Entries.size() >= 2);
+
+  // Sort the entries to ensure a deterministic build.
+  BlockVector SortedEntries(Entries.begin(), Entries.end());
+  llvm::sort(SortedEntries,
+             [&](const MachineBasicBlock *A, const MachineBasicBlock *B) {
+               auto ANum = A->getNumber();
+               auto BNum = B->getNumber();
+               return ANum < BNum;
+             });
+
+#ifndef NDEBUG
+  for (auto Block : SortedEntries)
+    assert(Block->getNumber() != -1);
+  if (SortedEntries.size() > 1) {
+    for (auto I = SortedEntries.begin(), E = SortedEntries.end() - 1; I != E;
+         ++I) {
+      auto ANum = (*I)->getNumber();
+      auto BNum = (*(std::next(I)))->getNumber();
+      assert(ANum != BNum);
+    }
+  }
+#endif
+
+  // Create a dispatch block which will contain a jump table to the entries.
+  MachineBasicBlock *Dispatch = MF.CreateMachineBasicBlock();
+  MF.insert(MF.end(), Dispatch);
+  Blocks.insert(Dispatch);
+
+  // Add the jump table.
+  const auto &TII = *MF.getSubtarget<WebAssemblySubtarget>().getInstrInfo();
+  MachineInstrBuilder MIB = BuildMI(*Dispatch, Dispatch->end(), DebugLoc(),
+                                    TII.get(WebAssembly::BR_TABLE_I32));
+
+  // Add the register which will be used to tell the jump table which block to
+  // jump to.
+  MachineRegisterInfo &MRI = MF.getRegInfo();
+  unsigned Reg = MRI.createVirtualRegister(&WebAssembly::I32RegClass);
+  MIB.addReg(Reg);
+
+  // Compute the indices in the superheader, one for each bad block, and
+  // add them as successors.
+  DenseMap<MachineBasicBlock *, unsigned> Indices;
+  for (auto *Entry : SortedEntries) {
+    auto Pair = Indices.insert(std::make_pair(Entry, 0));
+    assert(Pair.second);
+
+    unsigned Index = MIB.getInstr()->getNumExplicitOperands() - 1;
+    Pair.first->second = Index;
+
+    MIB.addMBB(Entry);
+    Dispatch->addSuccessor(Entry);
+  }
+
+  // Rewrite the problematic successors for every block that wants to reach
+  // the bad blocks. For simplicity, we just introduce a new block for every
+  // edge we need to rewrite. (Fancier things are possible.)
+
+  BlockVector AllPreds;
+  for (auto *Entry : SortedEntries) {
+    for (auto *Pred : Entry->predecessors()) {
+      if (Pred != Dispatch) {
+        AllPreds.push_back(Pred);
+      }
+    }
+  }
+
+  for (MachineBasicBlock *Pred : AllPreds) {
+    DenseMap<MachineBasicBlock *, MachineBasicBlock *> Map;
+    for (auto *Entry : Pred->successors()) {
+      if (!Entries.count(Entry)) {
+        continue;
+      }
+
+      // This is a successor we need to rewrite.
+      MachineBasicBlock *Split = MF.CreateMachineBasicBlock();
+      MF.insert(Pred->isLayoutSuccessor(Entry)
+                    ? MachineFunction::iterator(Entry)
+                    : MF.end(),
+                Split);
+      Blocks.insert(Split);
+
+      // Set the jump table's register of the index of the block we wish to
+      // jump to, and jump to the jump table.
+      BuildMI(*Split, Split->end(), DebugLoc(),
+              TII.get(WebAssembly::CONST_I32), Reg)
+          .addImm(Indices[Entry]);
+      BuildMI(*Split, Split->end(), DebugLoc(), TII.get(WebAssembly::BR))
+          .addMBB(Dispatch);
+      Split->addSuccessor(Dispatch);
+      Map[Entry] = Split;
+    }
+    // Remap the terminator operands and the successor list.
+    for (MachineInstr &Term : Pred->terminators())
+      for (auto &Op : Term.explicit_uses())
+        if (Op.isMBB() && Indices.count(Op.getMBB()))
+          Op.setMBB(Map[Op.getMBB()]);
+    for (auto Rewrite : Map)
+      Pred->replaceSuccessor(Rewrite.first, Rewrite.second);
+  }
+
+  // Create a fake default label, because br_table requires one.
+  MIB.addMBB(MIB.getInstr()
+                 ->getOperand(MIB.getInstr()->getNumExplicitOperands() - 1)
+                 .getMBB());
+}
 
 } // end anonymous namespace
 
