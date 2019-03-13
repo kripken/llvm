@@ -220,7 +220,7 @@ return:                                           ; preds = %entry
 ; A more complx case of irreducible control flow, two interacting loops.
 ; CHECK: ps_hints_apply
 ; CHECK: br_table
-define hidden void @ps_hints_apply() {
+define void @ps_hints_apply() {
 entry:
   br label %psh
 
@@ -254,7 +254,7 @@ Skip:                                           ; preds = %for.body39, %do.body
 ; misinterpreted as irreducible control flow.
 ; CHECK: fannkuch_worker
 ; CHECK-NOT: br_table
-define hidden i32 @fannkuch_worker(i8* %_arg) {
+define i32 @fannkuch_worker(i8* %_arg) {
 for.cond:                                         ; preds = %entry
   br label %do.body
 

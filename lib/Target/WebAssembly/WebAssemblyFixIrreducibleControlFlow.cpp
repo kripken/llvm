@@ -304,7 +304,7 @@ bool WebAssemblyFixIrreducibleControlFlow::processRegion(MachineBasicBlock *Entr
       // Each of these calls to processRegion may change the graph, but are
       // guaranteed not to interfere with each other. The only changes we make
       // to the graph are to add blocks on the way to a loop entry. As the
-      // loops are disjoint, that means we may only alter branches exiting
+      // loops are disjoint, that means we may only alter branches that exit
       // another loop, which are ignored when recursing into that other loop
       // anyhow.
       if (processRegion(LoopEntry, InnerBlocks.getBlocks(), MF)) {
