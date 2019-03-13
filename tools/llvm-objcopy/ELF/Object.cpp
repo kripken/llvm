@@ -62,6 +62,8 @@ Error SectionBase::removeSymbols(function_ref<bool(const Symbol &)> ToRemove) {
 void SectionBase::initialize(SectionTableRef SecTable) {}
 void SectionBase::finalize() {}
 void SectionBase::markSymbols() {}
+void SectionBase::replaceSectionReferences(
+    const DenseMap<SectionBase *, SectionBase *> &) {}
 
 template <class ELFT> void ELFWriter<ELFT>::writeShdr(const SectionBase &Sec) {
   uint8_t *B = Buf.getBufferStart();
@@ -182,13 +184,6 @@ getDecompressedSizeAndAlignment(ArrayRef<uint8_t> Data) {
 
 template <class ELFT>
 void ELFSectionWriter<ELFT>::visit(const DecompressedSection &Sec) {
-  uint8_t *Buf = Out.getBufferStart() + Sec.Offset;
-
-  if (!zlib::isAvailable()) {
-    std::copy(Sec.OriginalData.begin(), Sec.OriginalData.end(), Buf);
-    return;
-  }
-
   const size_t DataOffset = isDataGnuCompressed(Sec.OriginalData)
                                 ? (ZlibGnuMagic.size() + sizeof(Sec.Size))
                                 : sizeof(Elf_Chdr_Impl<ELFT>);
@@ -202,6 +197,7 @@ void ELFSectionWriter<ELFT>::visit(const DecompressedSection &Sec) {
                                  static_cast<size_t>(Sec.Size)))
     reportError(Sec.Name, std::move(E));
 
+  uint8_t *Buf = Out.getBufferStart() + Sec.Offset;
   std::copy(DecompressedContent.begin(), DecompressedContent.end(), Buf);
 }
 
@@ -263,12 +259,6 @@ CompressedSection::CompressedSection(const SectionBase &Sec,
                                      DebugCompressionType CompressionType)
     : SectionBase(Sec), CompressionType(CompressionType),
       DecompressedSize(Sec.OriginalData.size()), DecompressedAlign(Sec.Align) {
-
-  if (!zlib::isAvailable()) {
-    CompressionType = DebugCompressionType::None;
-    return;
-  }
-
   if (Error E = zlib::compress(
           StringRef(reinterpret_cast<const char *>(OriginalData.data()),
                     OriginalData.size()),
@@ -557,12 +547,12 @@ Error RelocationSection::removeSectionReferences(
   for (const Relocation &R : Relocations) {
     if (!R.RelocSymbol->DefinedIn || !ToRemove(R.RelocSymbol->DefinedIn))
       continue;
-    return createStringError(
-        llvm::errc::invalid_argument,
-        "Section %s cannot be removed because of symbol '%s' "
-        "used by the relocation patching offset 0x%" PRIx64 " from section %s.",
-        R.RelocSymbol->DefinedIn->Name.data(), R.RelocSymbol->Name.c_str(),
-        R.Offset, this->Name.data());
+    return createStringError(llvm::errc::invalid_argument,
+                             "Section %s can't be removed: (%s+0x%" PRIx64
+                             ") has relocation against symbol '%s'",
+                             R.RelocSymbol->DefinedIn->Name.data(),
+                             SecToApplyRel->Name.data(), R.Offset,
+                             R.RelocSymbol->Name.c_str());
   }
 
   return Error::success();
@@ -644,6 +634,19 @@ Error RelocationSection::removeSymbols(
 void RelocationSection::markSymbols() {
   for (const Relocation &Reloc : Relocations)
     Reloc.RelocSymbol->Referenced = true;
+}
+
+void RelocationSection::replaceSectionReferences(
+    const DenseMap<SectionBase *, SectionBase *> &FromTo) {
+  // Update the target section if it was replaced.
+  if (SectionBase *To = FromTo.lookup(SecToApplyRel))
+    SecToApplyRel = To;
+
+  // Change the sections where symbols are defined in if their
+  // original sections were replaced.
+  for (const Relocation &R : Relocations)
+    if (SectionBase *To = FromTo.lookup(R.RelocSymbol->DefinedIn))
+      R.RelocSymbol->DefinedIn = To;
 }
 
 void SectionWriter::visit(const DynamicRelocationSection &Sec) {
@@ -898,9 +901,7 @@ template <class ELFT> void ELFBuilder<ELFT>::setParentSegment(Segment &Child) {
 template <class ELFT> void ELFBuilder<ELFT>::readProgramHeaders() {
   uint32_t Index = 0;
   for (const auto &Phdr : unwrapOrError(ElfFile.program_headers())) {
-    ArrayRef<uint8_t> Data{ElfFile.base() + Phdr.p_offset,
-                           (size_t)Phdr.p_filesz};
-    Segment &Seg = Obj.addSegment(Data);
+    Segment &Seg = Obj.addSegment();
     Seg.Type = Phdr.p_type;
     Seg.Flags = Phdr.p_flags;
     Seg.OriginalOffset = Phdr.p_offset;
@@ -1111,7 +1112,8 @@ SectionBase &ELFBuilder<ELFT>::makeSection(const Elf_Shdr &Shdr) {
   default: {
     Data = unwrapOrError(ElfFile.getSectionContents(&Shdr));
 
-    if (isDataGnuCompressed(Data) || (Shdr.sh_flags & ELF::SHF_COMPRESSED)) {
+    StringRef Name = unwrapOrError(ElfFile.getSectionName(&Shdr));
+    if (Name.startswith(".zdebug") || (Shdr.sh_flags & ELF::SHF_COMPRESSED)) {
       uint64_t DecompressedSize, DecompressedAlign;
       std::tie(DecompressedSize, DecompressedAlign) =
           getDecompressedSizeAndAlignment<ELFT>(Data);

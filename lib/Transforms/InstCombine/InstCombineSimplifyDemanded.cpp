@@ -365,10 +365,9 @@ Value *InstCombiner::SimplifyDemandedUseBits(Value *V, APInt DemandedMask,
     KnownBits InputKnown(SrcBitWidth);
     if (SimplifyDemandedBits(I, 0, InputDemandedMask, InputKnown, Depth + 1))
       return I;
-    Known = InputKnown.zextOrTrunc(BitWidth);
-    // Any top bits are known to be zero.
-    if (BitWidth > SrcBitWidth)
-      Known.Zero.setBitsFrom(SrcBitWidth);
+    assert(InputKnown.getBitWidth() == SrcBitWidth && "Src width changed?");
+    Known = InputKnown.zextOrTrunc(BitWidth,
+                                   true /* ExtendedBitsAreKnownZero */);
     assert(!Known.hasConflict() && "Bits known to be one AND zero?");
     break;
   }
@@ -983,10 +982,7 @@ Value *InstCombiner::simplifyAMDGCNMemoryIntrinsicDemanded(IntrinsicInst *II,
     // below.
     DemandedElts = (1 << DemandedElts.getActiveBits()) - 1;
   } else {
-    ConstantInt *DMask = dyn_cast<ConstantInt>(II->getArgOperand(DMaskIdx));
-    if (!DMask)
-      return nullptr; // non-constant dmask is not supported by codegen
-
+    ConstantInt *DMask = cast<ConstantInt>(II->getArgOperand(DMaskIdx));
     unsigned DMaskVal = DMask->getZExtValue() & 0xf;
 
     // Mask off values that are undefined because the dmask doesn't cover them
@@ -1640,12 +1636,9 @@ Value *InstCombiner::SimplifyDemandedVectorElts(Value *V, APInt DemandedElts,
       return simplifyAMDGCNMemoryIntrinsicDemanded(II, DemandedElts);
     default: {
       if (getAMDGPUImageDMaskIntrinsic(II->getIntrinsicID())) {
-        LLVM_DEBUG(
-          Value *TFC = II->getArgOperand(II->getNumOperands() - 2);
-          assert(!isa<ConstantInt>(TFC) ||
-                 dyn_cast<ConstantInt>(TFC)->getZExtValue() == 0);
-        );
-
+        assert(cast<ConstantInt>(
+                 II->getArgOperand(
+                   II->getNumOperands() - 2))->getZExtValue() == 0);
         return simplifyAMDGCNMemoryIntrinsicDemanded(II, DemandedElts, 0);
       }
 

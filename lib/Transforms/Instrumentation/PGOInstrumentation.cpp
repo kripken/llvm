@@ -47,7 +47,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Transforms/Instrumentation/PGOInstrumentation.h"
 #include "CFGMST.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -107,6 +106,7 @@
 #include "llvm/Support/JamCRC.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Instrumentation.h"
+#include "llvm/Transforms/Instrumentation/PGOInstrumentation.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include <algorithm>
 #include <cassert>
@@ -1147,7 +1147,7 @@ bool PGOUseFunc::readCounters(IndexedInstrProfReader *PGOReader, bool &AllZeros)
   getBBInfo(nullptr).UnknownCountInEdge = 2;
 
   setInstrumentedCounts(CountFromProfile);
-  ProgramMaxCount = PGOReader->getMaximumFunctionCount();
+  ProgramMaxCount = PGOReader->getMaximumFunctionCount(IsCS);
   return true;
 }
 
@@ -1477,6 +1477,13 @@ static bool InstrumentAllFunctions(
   return true;
 }
 
+PreservedAnalyses
+PGOInstrumentationGenCreateVar::run(Module &M, ModuleAnalysisManager &AM) {
+  createProfileFileNameVar(M, CSInstrName);
+  createIRLevelProfileFlagVar(M, /* IsCS */ true);
+  return PreservedAnalyses::all();
+}
+
 bool PGOInstrumentationGenLegacyPass::runOnModule(Module &M) {
   if (skipModule(M))
     return false;
@@ -1531,6 +1538,8 @@ static bool annotateAllFunctions(
                                           StringRef("Cannot get PGOReader")));
     return false;
   }
+  if (!PGOReader->hasCSIRLevelProfile() && IsCS)
+    return false;
 
   // TODO: might need to change the warning once the clang option is finalized.
   if (!PGOReader->isIRLevelProfile()) {
@@ -1599,7 +1608,9 @@ static bool annotateAllFunctions(
       }
     }
   }
-  M.setProfileSummary(PGOReader->getSummary().getMD(M.getContext()));
+  M.setProfileSummary(PGOReader->getSummary(IsCS).getMD(M.getContext()),
+                      IsCS ? ProfileSummary::PSK_CSInstr
+                           : ProfileSummary::PSK_Instr);
 
   // Set function hotness attribute from the profile.
   // We have to apply these attributes at the end because their presence

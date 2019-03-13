@@ -497,7 +497,7 @@ namespace {
 static bool isLegalMaskCompare(SDNode *N, const X86Subtarget *Subtarget) {
   unsigned Opcode = N->getOpcode();
   if (Opcode == X86ISD::CMPM || Opcode == ISD::SETCC ||
-      Opcode == X86ISD::CMPM_RND || Opcode == X86ISD::VFPCLASS) {
+      Opcode == X86ISD::CMPM_SAE || Opcode == X86ISD::VFPCLASS) {
     // We can get 256-bit 8 element types here without VLX being enabled. When
     // this happens we will use 512-bit operations and the mask will not be
     // zero extended.
@@ -509,7 +509,7 @@ static bool isLegalMaskCompare(SDNode *N, const X86Subtarget *Subtarget) {
   }
   // Scalar opcodes use 128 bit registers, but aren't subject to the VLX check.
   if (Opcode == X86ISD::VFPCLASSS || Opcode == X86ISD::FSETCCM ||
-      Opcode == X86ISD::FSETCCM_RND)
+      Opcode == X86ISD::FSETCCM_SAE)
     return true;
 
   return false;
@@ -582,6 +582,12 @@ X86DAGToDAGISel::IsProfitableToFold(SDValue N, SDNode *U, SDNode *Root) const {
         if (U->getOpcode() == ISD::AND &&
             Imm->getAPIntValue().getBitWidth() == 64 &&
             Imm->getAPIntValue().isIntN(32))
+          return false;
+
+        // ADD/SUB with can negate the immediate and use the opposite operation
+        // to fit 128 into a sign extended 8 bit immediate.
+        if ((U->getOpcode() == ISD::ADD || U->getOpcode() == ISD::SUB) &&
+            (-Imm->getAPIntValue()).isSignedIntN(8))
           return false;
       }
 
@@ -751,6 +757,30 @@ void X86DAGToDAGISel::PreprocessISelDAG() {
       ++I;
       CurDAG->DeleteNode(N);
       continue;
+    }
+
+    // Replace vector shifts with their X86 specific equivalent so we don't
+    // need 2 sets of patterns.
+    switch (N->getOpcode()) {
+    case ISD::SHL:
+    case ISD::SRA:
+    case ISD::SRL:
+      if (N->getValueType(0).isVector()) {
+        unsigned NewOpc;
+        switch (N->getOpcode()) {
+        default: llvm_unreachable("Unexpected opcode!");
+        case ISD::SHL: NewOpc = X86ISD::VSHLV; break;
+        case ISD::SRA: NewOpc = X86ISD::VSRAV; break;
+        case ISD::SRL: NewOpc = X86ISD::VSRLV; break;
+        }
+        SDValue Res = CurDAG->getNode(NewOpc, SDLoc(N), N->getValueType(0),
+                                      N->getOperand(0), N->getOperand(1));
+        --I;
+        CurDAG->ReplaceAllUsesOfValueWith(SDValue(N, 0), Res);
+        ++I;
+        CurDAG->DeleteNode(N);
+        continue;
+      }
     }
 
     if (OptLevel != CodeGenOpt::None &&

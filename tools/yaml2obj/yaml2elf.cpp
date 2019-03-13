@@ -133,8 +133,7 @@ class ELFState {
   const ELFYAML::Object &Doc;
 
   bool buildSectionIndex();
-  bool buildSymbolIndex(std::size_t &StartIndex,
-                        const std::vector<ELFYAML::Symbol> &Symbols);
+  bool buildSymbolIndex(const ELFYAML::LocalGlobalWeakSymbols &);
   void initELFHeader(Elf_Ehdr &Header);
   void initProgramHeaders(std::vector<Elf_Phdr> &PHeaders);
   bool initSectionHeaders(std::vector<Elf_Shdr> &SHeaders,
@@ -207,8 +206,7 @@ void ELFState<ELFT>::initELFHeader(Elf_Ehdr &Header) {
   Header.e_ident[EI_MAG2] = 'L';
   Header.e_ident[EI_MAG3] = 'F';
   Header.e_ident[EI_CLASS] = ELFT::Is64Bits ? ELFCLASS64 : ELFCLASS32;
-  bool IsLittleEndian = ELFT::TargetEndianness == support::little;
-  Header.e_ident[EI_DATA] = IsLittleEndian ? ELFDATA2LSB : ELFDATA2MSB;
+  Header.e_ident[EI_DATA] = Doc.Header.Data;
   Header.e_ident[EI_VERSION] = EV_CURRENT;
   Header.e_ident[EI_OSABI] = Doc.Header.OSABI;
   Header.e_ident[EI_ABIVERSION] = Doc.Header.ABIVersion;
@@ -341,13 +339,16 @@ void ELFState<ELFT>::initSymtabSectionHeader(Elf_Shdr &SHeader,
   SHeader.sh_entsize = sizeof(Elf_Sym);
   SHeader.sh_addralign = 8;
 
-  // If .dynsym section is explicitly described in the YAML
-  // then we want to use its section address.
-  if (!IsStatic) {
-    // Take section index and ignore the SHT_NULL section.
-    unsigned SecNdx = getDotDynSymSecNo() - 1;
-    if (SecNdx < Doc.Sections.size())
-      SHeader.sh_addr = Doc.Sections[SecNdx]->Address;
+  // Get the section index ignoring the SHT_NULL section.
+  unsigned SecNdx =
+      IsStatic ? getDotSymTabSecNo() - 1 : getDotDynSymSecNo() - 1;
+  // If the symbol table section is explicitly described in the YAML
+  // then we should set the fields requested.
+  if (SecNdx < Doc.Sections.size()) {
+    ELFYAML::Section *Sec = Doc.Sections[SecNdx].get();
+    SHeader.sh_addr = Sec->Address;
+    if (auto S = dyn_cast<ELFYAML::RawContentSection>(Sec))
+      SHeader.sh_info = S->Info;
   }
 
   std::vector<Elf_Sym> Syms;
@@ -503,6 +504,7 @@ ELFState<ELFT>::writeSectionContent(Elf_Shdr &SHeader,
   else
     SHeader.sh_entsize = 0;
   SHeader.sh_size = Section.Size;
+  SHeader.sh_info = Section.Info;
 }
 
 static bool isMips64EL(const ELFYAML::Object &Doc) {
@@ -528,11 +530,14 @@ ELFState<ELFT>::writeSectionContent(Elf_Shdr &SHeader,
 
   for (const auto &Rel : Section.Relocations) {
     unsigned SymIdx = 0;
-    // Some special relocation, R_ARM_v4BX for instance, does not have
-    // an external reference.  So it ignores the return value of lookup()
-    // here.
-    if (Rel.Symbol)
-      SymN2I.lookup(*Rel.Symbol, SymIdx);
+    // If a relocation references a symbol, try to look one up in the symbol
+    // table. If it is not there, treat the value as a symbol index.
+    if (Rel.Symbol && SymN2I.lookup(*Rel.Symbol, SymIdx) &&
+        !to_integer(*Rel.Symbol, SymIdx)) {
+      WithColor::error() << "Unknown symbol referenced: '" << *Rel.Symbol
+                         << "' at YAML section '" << Section.Name << "'.\n";
+      return false;
+    }
 
     if (IsRela) {
       Elf_Rela REntry;
@@ -776,16 +781,19 @@ template <class ELFT> bool ELFState<ELFT>::buildSectionIndex() {
 }
 
 template <class ELFT>
-bool
-ELFState<ELFT>::buildSymbolIndex(std::size_t &StartIndex,
-                                 const std::vector<ELFYAML::Symbol> &Symbols) {
-  for (const auto &Sym : Symbols) {
-    ++StartIndex;
-    if (Sym.Name.empty())
-      continue;
-    if (SymN2I.addName(Sym.Name, StartIndex)) {
-      WithColor::error() << "Repeated symbol name: '" << Sym.Name << "'.\n";
-      return false;
+bool ELFState<ELFT>::buildSymbolIndex(
+    const ELFYAML::LocalGlobalWeakSymbols &Symbols) {
+  std::size_t I = 0;
+  for (const std::vector<ELFYAML::Symbol> &V :
+       {Symbols.Local, Symbols.Global, Symbols.Weak}) {
+    for (const auto &Sym : V) {
+      ++I;
+      if (Sym.Name.empty())
+        continue;
+      if (SymN2I.addName(Sym.Name, I)) {
+        WithColor::error() << "Repeated symbol name: '" << Sym.Name << "'.\n";
+        return false;
+      }
     }
   }
   return true;
@@ -843,10 +851,7 @@ int ELFState<ELFT>::writeELF(raw_ostream &OS, const ELFYAML::Object &Doc) {
   if (!State.buildSectionIndex())
     return 1;
 
-  std::size_t StartSymIndex = 0;
-  if (!State.buildSymbolIndex(StartSymIndex, Doc.Symbols.Local) ||
-      !State.buildSymbolIndex(StartSymIndex, Doc.Symbols.Global) ||
-      !State.buildSymbolIndex(StartSymIndex, Doc.Symbols.Weak))
+  if (!State.buildSymbolIndex(Doc.Symbols))
     return 1;
 
   Elf_Ehdr Header;
