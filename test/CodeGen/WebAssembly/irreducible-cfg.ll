@@ -1,4 +1,4 @@
-; RUN: llc < %s -asm-verbose=false -verify-machineinstrs -disable-block-placement -wasm-disable-explicit-locals -wasm-keep-registers | FileCheck %s
+; RUN: llc < %s -O0 -asm-verbose=false -verify-machineinstrs -disable-block-placement -wasm-disable-explicit-locals -wasm-keep-registers | FileCheck %s
 
 ; Test irreducible CFG handling.
 
@@ -217,10 +217,9 @@ return:                                           ; preds = %entry
   ret void
 }
 
-; Complex control flow without irreducibility. This requires we properly identify
-; the blocks entering each nested loop properly (in particular, even if they
-; are the entry to a parent loop).
-; CHECK-NOT: br_table
+; A more complx case of irreducible control flow, two interacting loops.
+; CHECK: ps_hints_apply
+; CHECK: br_table
 define hidden void @ps_hints_apply() {
 entry:
   br label %psh
@@ -249,5 +248,41 @@ do.body45:                                      ; preds = %for.body39
 
 Skip:                                           ; preds = %for.body39, %do.body
   br label %for.cond
+}
+
+; A simple sequence of loops with blocks in between, that should not be
+; misinterpreted as irreducible control flow.
+; CHECK: fannkuch_worker
+; CHECK-NOT: br_table
+define hidden i32 @fannkuch_worker(i8* %_arg) {
+for.cond:                                         ; preds = %entry
+  br label %do.body
+
+do.body:                                          ; preds = %do.cond, %for.cond
+  br label %for.cond1
+
+for.cond1:                                        ; preds = %for.body, %do.body
+  br i1 1, label %for.cond1, label %for.end
+
+for.end:                                          ; preds = %for.cond1
+  br label %do.cond
+
+do.cond:                                          ; preds = %for.end
+  br i1 1, label %do.body, label %do.end
+
+do.end:                                           ; preds = %do.cond
+  br label %for.cond2
+
+for.cond2:                                        ; preds = %for.end6, %do.end
+  br label %for.cond3
+
+for.cond3:                                        ; preds = %for.body5, %for.cond2
+  br i1 1, label %for.cond3, label %for.end6
+
+for.end6:                                         ; preds = %for.cond3
+  br label %for.cond2
+
+return:                                           ; No predecessors!
+  ret i32 1
 }
 

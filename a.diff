@@ -10,3 +10,8 @@
   slower there, and a reverse bug where we missed irreducibility. On fannkuch,
   we used to be 44% slower than asm2wasm and are now 4% faster.
 
+
+
+base: f3a3d439652
+
+old base: 62a80b42c15040a5adf5b6d918501f910abeac62
