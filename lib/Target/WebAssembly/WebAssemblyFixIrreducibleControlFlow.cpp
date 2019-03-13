@@ -241,8 +241,8 @@ public:
   WebAssemblyFixIrreducibleControlFlow() : MachineFunctionPass(ID) {}
 };
 
-bool WebAssemblyFixIrreducibleControlFlow::processRegion(MachineBasicBlock *Entry, BlockSet &Blocks,
-                   MachineFunction &MF) {
+bool WebAssemblyFixIrreducibleControlFlow::processRegion(
+    MachineBasicBlock *Entry, BlockSet &Blocks, MachineFunction &MF) {
   bool Changed = false;
 
   // Remove irreducibility before processing child loops, which may take
@@ -320,8 +320,8 @@ bool WebAssemblyFixIrreducibleControlFlow::processRegion(MachineBasicBlock *Entr
 // loop by creating a dispatch block for them, routing control flow using
 // a helper variable. Also updates Blocks with any new blocks created, so
 // that we properly track all the blocks in the region.
-void WebAssemblyFixIrreducibleControlFlow::makeSingleEntryLoop(BlockSet &Entries, BlockSet &Blocks,
-                         MachineFunction &MF) {
+void WebAssemblyFixIrreducibleControlFlow::makeSingleEntryLoop(
+    BlockSet &Entries, BlockSet &Blocks, MachineFunction &MF) {
   assert(Entries.size() >= 2);
 
   // Sort the entries to ensure a deterministic build.
@@ -406,8 +406,8 @@ void WebAssemblyFixIrreducibleControlFlow::makeSingleEntryLoop(BlockSet &Entries
 
       // Set the jump table's register of the index of the block we wish to
       // jump to, and jump to the jump table.
-      BuildMI(*Split, Split->end(), DebugLoc(),
-              TII.get(WebAssembly::CONST_I32), Reg)
+      BuildMI(*Split, Split->end(), DebugLoc(), TII.get(WebAssembly::CONST_I32),
+              Reg)
           .addImm(Indices[Entry]);
       BuildMI(*Split, Split->end(), DebugLoc(), TII.get(WebAssembly::BR))
           .addMBB(Dispatch);
