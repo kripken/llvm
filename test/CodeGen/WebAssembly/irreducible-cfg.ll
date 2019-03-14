@@ -285,3 +285,36 @@ for.end6:                                         ; preds = %for.cond3
 return:                                           ; No predecessors!
   ret i32 1
 }
+
+; Test an interesting pattern of nested irreducibility.
+
+; CHECK: func_2:
+; CHECK: br_table
+define void @func_2() {
+entry:
+  br i1 undef, label %lbl_937, label %if.else787
+
+lbl_937:                                          ; preds = %for.body978, %entry
+  br label %if.end965
+
+if.else787:                                       ; preds = %entry
+  br label %if.end965
+
+if.end965:                                        ; preds = %if.else787, %lbl_937
+  br label %for.cond967
+
+for.cond967:                                      ; preds = %for.end1035, %if.end965
+  br label %for.cond975
+
+for.cond975:                                      ; preds = %if.end984, %for.cond967
+  br i1 undef, label %for.body978, label %for.end1035
+
+for.body978:                                      ; preds = %for.cond975
+  br i1 undef, label %lbl_937, label %if.end984
+
+if.end984:                                        ; preds = %for.body978
+  br label %for.cond975
+
+for.end1035:                                      ; preds = %for.cond975
+  br label %for.cond967
+}
