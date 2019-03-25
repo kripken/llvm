@@ -2,6 +2,7 @@
 ;
 ; RUN: opt < %s -instcombine -S | FileCheck %s
 ; RUN: opt < %s -mtriple xcore-xmos-elf -instcombine -S | FileCheck %s -check-prefix=CHECK-IPRINTF
+; RUN: opt < %s -mtriple wasm32-unknown-wasi -instcombine -S | FileCheck %s -check-prefix=CHECK-SMALL-PRINTF
 
 target datalayout = "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:32:64-f32:32:32-f64:32:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128"
 
@@ -12,6 +13,7 @@ target datalayout = "e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:32:64-f3
 @percent_c = constant [3 x i8] c"%c\00"
 @percent_d = constant [3 x i8] c"%d\00"
 @percent_f = constant [3 x i8] c"%f\00"
+@percent_Lf = constant [4 x i8] c"%Lf\00"
 @percent_s = constant [4 x i8] c"%s\0A\00"
 @empty = constant [1 x i8] c"\00"
 ; CHECK: [[$STR:@[a-z0-9]+]] = private unnamed_addr constant [12 x i8] c"hello world\00", align 1
@@ -104,6 +106,17 @@ define void @test_simplify7() {
 ; CHECK-IPRINTF-NEXT: ret void
 }
 
+; Check printf(format, ...) -> __small_printf(format, ...) if no fp128.
+
+define void @test_simplify8() {
+; CHECK-SMALL-PRINTF-LABEL: @test_simplify8(
+  %fmt = getelementptr [3 x i8], [3 x i8]* @percent_f, i32 0, i32 0
+  call i32 (i8*, ...) @printf(i8* %fmt, double 1.87)
+; CHECK-SMALL-PRINTF-NEXT: call i32 (i8*, ...) @__small_printf(i8* getelementptr inbounds ([3 x i8], [3 x i8]* @percent_f, i32 0, i32 0), double 1.870000e+00)
+  ret void
+; CHECK-SMALL-PRINTF-NEXT: ret void
+}
+
 define void @test_no_simplify1() {
 ; CHECK-IPRINTF-LABEL: @test_no_simplify1(
   %fmt = getelementptr [3 x i8], [3 x i8]* @percent_f, i32 0, i32 0
@@ -128,4 +141,13 @@ define i32 @test_no_simplify3() {
 ; CHECK-NEXT: call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([2 x i8], [2 x i8]* @h, i32 0, i32 0))
   ret i32 %ret
 ; CHECK-NEXT: ret i32 %ret
+}
+
+define void @test_no_simplify4() {
+; CHECK-SMALL-PRINTF-LABEL: @test_no_simplify4(
+  %fmt = getelementptr [4 x i8], [4 x i8]* @percent_Lf, i32 0, i32 0
+  call i32 (i8*, ...) @printf(i8* %fmt, fp128 0xLC0000000000000003FFFDEB851EB851E)
+; CHECK-SMALL-PRINTF-NEXT: call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @percent_Lf, i32 0, i32 0), fp128 0xLC0000000000000003FFFDEB851EB851E)
+  ret void
+; CHECK-SMALL-PRINTF-NEXT: ret void
 }

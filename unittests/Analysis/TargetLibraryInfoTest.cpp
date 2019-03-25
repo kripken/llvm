@@ -493,6 +493,9 @@ TEST_F(TargetLibraryInfoTest, ValidProto) {
       "declare i32 @fiprintf(%struct*, i8*, ...)\n"
       "declare i32 @iprintf(i8*, ...)\n"
       "declare i32 @siprintf(i8*, i8*, ...)\n"
+      "declare i32 @__small_fprintf(%struct*, i8*, ...)\n"
+      "declare i32 @__small_printf(i8*, ...)\n"
+      "declare i32 @__small_sprintf(i8*, i8*, ...)\n"
 
       "declare i32 @htonl(i32)\n"
       "declare i16 @htons(i16)\n"
