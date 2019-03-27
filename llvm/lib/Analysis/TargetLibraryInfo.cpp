@@ -174,13 +174,6 @@ static void initialize(TargetLibraryInfoImpl &TLI, const Triple &T,
     TLI.setUnavailable(LibFunc_fiprintf);
   }
 
-  // __small_printf and friends are only available on WASI and Emscripten.
-  if (T.getOS() != Triple::WASI && T.getOS() != Triple::Emscripten) {
-    TLI.setUnavailable(LibFunc_small_printf);
-    TLI.setUnavailable(LibFunc_small_sprintf);
-    TLI.setUnavailable(LibFunc_small_fprintf);
-  }
-
   if (T.isOSWindows() && !T.isOSCygMing()) {
     // XXX: The earliest documentation available at the moment is for VS2015/VC19:
     // https://docs.microsoft.com/en-us/cpp/c-runtime-library/floating-point-support?view=vs-2015
@@ -780,7 +773,6 @@ bool TargetLibraryInfoImpl::isValidProtoForLibFunc(const FunctionType &FTy,
   case LibFunc_stat:
   case LibFunc_statvfs:
   case LibFunc_siprintf:
-  case LibFunc_small_sprintf:
   case LibFunc_sprintf:
     return (NumParams >= 2 && FTy.getParamType(0)->isPointerTy() &&
             FTy.getParamType(1)->isPointerTy() &&
@@ -878,7 +870,6 @@ bool TargetLibraryInfoImpl::isValidProtoForLibFunc(const FunctionType &FTy,
   case LibFunc_getenv:
   case LibFunc_getpwnam:
   case LibFunc_iprintf:
-  case LibFunc_small_printf:
   case LibFunc_pclose:
   case LibFunc_perror:
   case LibFunc_printf:
@@ -958,7 +949,6 @@ bool TargetLibraryInfoImpl::isValidProtoForLibFunc(const FunctionType &FTy,
             FTy.getParamType(1)->isPointerTy());
   case LibFunc_fscanf:
   case LibFunc_fiprintf:
-  case LibFunc_small_fprintf:
   case LibFunc_fprintf:
     return (NumParams >= 2 && FTy.getReturnType()->isIntegerTy() &&
             FTy.getParamType(0)->isPointerTy() &&
