@@ -171,8 +171,7 @@ getDecompressedSizeAndAlignment(ArrayRef<uint8_t> Data) {
   const bool IsGnuDebug = isDataGnuCompressed(Data);
   const uint64_t DecompressedSize =
       IsGnuDebug
-          ? support::endian::read64be(reinterpret_cast<const uint64_t *>(
-                Data.data() + ZlibGnuMagic.size()))
+          ? support::endian::read64be(Data.data() + ZlibGnuMagic.size())
           : reinterpret_cast<const Elf_Chdr_Impl<ELFT> *>(Data.data())->ch_size;
   const uint64_t DecompressedAlign =
       IsGnuDebug ? 1
@@ -742,12 +741,11 @@ GnuDebugLinkSection::GnuDebugLinkSection(StringRef File) : FileName(File) {
 
 template <class ELFT>
 void ELFSectionWriter<ELFT>::visit(const GnuDebugLinkSection &Sec) {
-  auto Buf = Out.getBufferStart() + Sec.Offset;
-  char *File = reinterpret_cast<char *>(Buf);
+  unsigned char *Buf = Out.getBufferStart() + Sec.Offset;
   Elf_Word *CRC =
       reinterpret_cast<Elf_Word *>(Buf + Sec.Size - sizeof(Elf_Word));
   *CRC = Sec.CRC32;
-  llvm::copy(Sec.FileName, File);
+  llvm::copy(Sec.FileName, Buf);
 }
 
 void GnuDebugLinkSection::accept(SectionVisitor &Visitor) const {
@@ -1223,11 +1221,6 @@ template <class ELFT> void ELFBuilder<ELFT>::build() {
               " in elf header " + " is not a string table");
 }
 
-// A generic size function which computes sizes of any random access range.
-template <class R> size_t size(R &&Range) {
-  return static_cast<size_t>(std::end(Range) - std::begin(Range));
-}
-
 Writer::~Writer() {}
 
 Reader::~Reader() {}
@@ -1284,7 +1277,7 @@ template <class ELFT> void ELFWriter<ELFT>::writeEhdr() {
   Ehdr.e_phentsize = (Ehdr.e_phnum != 0) ? sizeof(Elf_Phdr) : 0;
   Ehdr.e_flags = Obj.Flags;
   Ehdr.e_ehsize = sizeof(Elf_Ehdr);
-  if (WriteSectionHeaders && size(Obj.sections()) != 0) {
+  if (WriteSectionHeaders && Obj.sections().size() != 0) {
     Ehdr.e_shentsize = sizeof(Elf_Shdr);
     Ehdr.e_shoff = Obj.SHOffset;
     // """
@@ -1293,7 +1286,7 @@ template <class ELFT> void ELFWriter<ELFT>::writeEhdr() {
     // number of section header table entries is contained in the sh_size field
     // of the section header at index 0.
     // """
-    auto Shnum = size(Obj.sections()) + 1;
+    auto Shnum = Obj.sections().size() + 1;
     if (Shnum >= SHN_LORESERVE)
       Ehdr.e_shnum = 0;
     else
@@ -1332,7 +1325,7 @@ template <class ELFT> void ELFWriter<ELFT>::writeShdrs() {
   Shdr.sh_addr = 0;
   Shdr.sh_offset = 0;
   // See writeEhdr for why we do this.
-  uint64_t Shnum = size(Obj.sections()) + 1;
+  uint64_t Shnum = Obj.sections().size() + 1;
   if (Shnum >= SHN_LORESERVE)
     Shdr.sh_size = Shnum;
   else
@@ -1470,7 +1463,7 @@ static void orderSegments(std::vector<Segment *> &Segments) {
 // This function finds a consistent layout for a list of segments starting from
 // an Offset. It assumes that Segments have been sorted by OrderSegments and
 // returns an Offset one past the end of the last segment.
-static uint64_t LayoutSegments(std::vector<Segment *> &Segments,
+static uint64_t layoutSegments(std::vector<Segment *> &Segments,
                                uint64_t Offset) {
   assert(std::is_sorted(std::begin(Segments), std::end(Segments),
                         compareSegmentsByOffset));
@@ -1553,7 +1546,7 @@ template <class ELFT> void ELFWriter<ELFT>::assignOffsets() {
   // Since the ELF Header (ElfHdrSegment) must be at the start of the file,
   // we start at offset 0.
   uint64_t Offset = 0;
-  Offset = LayoutSegments(OrderedSegments, Offset);
+  Offset = layoutSegments(OrderedSegments, Offset);
   Offset = layoutSections(Obj.sections(), Offset);
   // If we need to write the section header table out then we need to align the
   // Offset so that SHOffset is valid.
@@ -1566,7 +1559,7 @@ template <class ELFT> size_t ELFWriter<ELFT>::totalSize() const {
   // We already have the section header offset so we can calculate the total
   // size by just adding up the size of each section header.
   auto NullSectionSize = WriteSectionHeaders ? sizeof(Elf_Shdr) : 0;
-  return Obj.SHOffset + size(Obj.sections()) * sizeof(Elf_Shdr) +
+  return Obj.SHOffset + Obj.sections().size() * sizeof(Elf_Shdr) +
          NullSectionSize;
 }
 
@@ -1597,7 +1590,7 @@ template <class ELFT> Error ELFWriter<ELFT>::finalize() {
   // if we need large indexes or not. We can assign indexes first and check as
   // we go to see if we will actully need large indexes.
   bool NeedsLargeIndexes = false;
-  if (size(Obj.sections()) >= SHN_LORESERVE) {
+  if (Obj.sections().size() >= SHN_LORESERVE) {
     auto Sections = Obj.sections();
     NeedsLargeIndexes =
         std::any_of(Sections.begin() + SHN_LORESERVE, Sections.end(),

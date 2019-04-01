@@ -457,7 +457,12 @@ bool SIInstrInfo::shouldClusterMemOps(MachineOperand &BaseOp1,
 
   const MachineRegisterInfo &MRI =
       FirstLdSt.getParent()->getParent()->getRegInfo();
-  const TargetRegisterClass *DstRC = MRI.getRegClass(FirstDst->getReg());
+
+  const unsigned Reg = FirstDst->getReg();
+
+  const TargetRegisterClass *DstRC = TargetRegisterInfo::isVirtualRegister(Reg)
+                                         ? MRI.getRegClass(Reg)
+                                         : RI.getPhysRegClass(Reg);
 
   return (NumLoads * (RI.getRegSizeInBits(*DstRC) / 8)) <= LoadClusterThreshold;
 }
@@ -1322,9 +1327,15 @@ bool SIInstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     MI.eraseFromParent();
     break;
   }
+  case AMDGPU::ENTER_WWM: {
+    // This only gets its own opcode so that SIPreAllocateWWMRegs can tell when
+    // WWM is entered.
+    MI.setDesc(get(AMDGPU::S_OR_SAVEEXEC_B64));
+    break;
+  }
   case AMDGPU::EXIT_WWM: {
-    // This only gets its own opcode so that SIFixWWMLiveness can tell when WWM
-    // is exited.
+    // This only gets its own opcode so that SIPreAllocateWWMRegs can tell when
+    // WWM is exited.
     MI.setDesc(get(AMDGPU::S_MOV_B64));
     break;
   }
@@ -2451,6 +2462,27 @@ bool SIInstrInfo::hasUnwantedEffectsWhenEXECEmpty(const MachineInstr &MI) const 
     return true;
 
   return false;
+}
+
+bool SIInstrInfo::mayReadEXEC(const MachineRegisterInfo &MRI,
+                              const MachineInstr &MI) const {
+  if (MI.isMetaInstruction())
+    return false;
+
+  // This won't read exec if this is an SGPR->SGPR copy.
+  if (MI.isCopyLike()) {
+    if (!RI.isSGPRReg(MRI, MI.getOperand(0).getReg()))
+      return true;
+
+    // Make sure this isn't copying exec as a normal operand
+    return MI.readsRegister(AMDGPU::EXEC, &RI);
+  }
+
+  // Be conservative with any unhandled generic opcodes.
+  if (!isTargetSpecificOpcode(MI.getOpcode()))
+    return true;
+
+  return !isSALU(MI) || MI.readsRegister(AMDGPU::EXEC, &RI);
 }
 
 bool SIInstrInfo::isInlineConstant(const APInt &Imm) const {
