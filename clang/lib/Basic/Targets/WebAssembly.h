@@ -46,15 +46,8 @@ public:
     LargeArrayAlign = 128;
     SimdDefaultAlign = 128;
     SigAtomicType = SignedLong;
-    // Emscripten prioritizes code size and so does not support software-
-    // emulated float 128 (which would require libc code).
-    if (T.isOSEmscripten()) {
-      LongDoubleWidth = LongDoubleAlign = 64;
-      LongDoubleFormat = &llvm::APFloat::IEEEdouble();
-    } else {
-      LongDoubleWidth = LongDoubleAlign = 128;
-      LongDoubleFormat = &llvm::APFloat::IEEEquad();
-    }
+    LongDoubleWidth = LongDoubleAlign = 128;
+    LongDoubleFormat = &llvm::APFloat::IEEEquad();
     MaxAtomicPromoteWidth = MaxAtomicInlineWidth = 64;
     // size_t being unsigned long for both wasm32 and wasm64 makes mangled names
     // more consistent between the two.
