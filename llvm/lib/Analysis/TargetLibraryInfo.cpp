@@ -165,17 +165,16 @@ static void initialize(TargetLibraryInfoImpl &TLI, const Triple &T,
     TLI.setAvailableWithName(LibFunc_fputs, "fputs$UNIX2003");
   }
 
-  // iprintf and friends are only available on XCore, TCE, WASI, and
-  // Emscripten.
+  // iprintf and friends are only available on XCore, TCE, and Emscripten.
   if (T.getArch() != Triple::xcore && T.getArch() != Triple::tce &&
-      T.getOS() != Triple::WASI && T.getOS() != Triple::Emscripten) {
+      T.getOS() != Triple::Emscripten) {
     TLI.setUnavailable(LibFunc_iprintf);
     TLI.setUnavailable(LibFunc_siprintf);
     TLI.setUnavailable(LibFunc_fiprintf);
   }
 
-  // __small_printf and friends are only available on WASI and Emscripten.
-  if (T.getOS() != Triple::WASI && T.getOS() != Triple::Emscripten) {
+  // __small_printf and friends are only available on Emscripten.
+  if (T.getOS() != Triple::Emscripten) {
     TLI.setUnavailable(LibFunc_small_printf);
     TLI.setUnavailable(LibFunc_small_sprintf);
     TLI.setUnavailable(LibFunc_small_fprintf);
